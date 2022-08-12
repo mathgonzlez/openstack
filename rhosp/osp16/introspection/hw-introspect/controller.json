@@ -1,0 +1,20 @@
+{
+    "nodes": [
+        {
+            "name":"osp16-controller-0",
+            "pm_type":"staging-ovirt",
+            "mac":[
+                "56:6f:70:88:00:0a"
+            ],
+            "cpu":"2",
+            "memory":"4096",
+            "disk":"40",
+            "arch":"x86_64",
+            "pm_user":"admin@internal",
+            "pm_password":"jksdert",
+            "pm_addr":"rhvirt.local.lan",
+            "pm_vm_name":"overcloud.local.lan",
+            "capabilities": "profile:control,boot_option:local"
+               }
+      ]
+}

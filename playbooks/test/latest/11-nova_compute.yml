@@ -1,0 +1,62 @@
+---
+- hosts: compute-rh1288 #Change server
+  vars:
+    - CONTROLLER_HOST_NAME: controller
+    - IP_ADDRESS_HOST: 192.168.50.70 #IP INTERFAZ INTERNET
+    - CONTROLLER_IP_ADDRESS_HOST: 192.168.50.70 #IP INTERFAZ INTERNET
+    - NOVA_DBPASS: openstack
+    - NOVA_CONF_FILE: /etc/nova/nova.conf
+#                        NOVA SPECIFIC VARS
+    - NOVA_SERVICE_NAME: nova
+    - NOVA_SERVICE_PORT: 8774
+    - RABBIT_PASS: openstack
+    - PLACEMENT_PASS: openstack
+    - ADMIN_PASS: openstack
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: install '{{ NOVA_SERVICE_NAME }}'
+       yum:
+         name: openstack-nova-compute
+         state: present
+     - name: MODIFY NOVA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT compute_driver libvirt.LibvirtDriver'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT enabled_apis osapi_compute,metadata'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@{{ CONTROLLER_HOST_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} api auth_strategy keystone'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken www_authenticate_uri http://{{ CONTROLLER_HOST_NAME }}:5000/'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken auth_url http://{{ CONTROLLER_HOST_NAME }}:5000/'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken memcached_servers {{ CONTROLLER_HOST_NAME }}:11211'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken username {{ NOVA_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT my_ip {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT allow_resize_to_same_host True'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc enabled true'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc server_listen 127.0.0.1'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc server_proxyclient_address {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc novncproxy_base_url http://{{ CONTROLLER_IP_ADDRESS_HOST }}:6080/vnc_auto.html'
+         - 'crudini --set {{ NOVA_CONF_FILE }} glance api_servers http://{{ CONTROLLER_HOST_NAME }}:9292'
+         - 'crudini --set {{ NOVA_CONF_FILE }} oslo_concurrency lock_path /var/lib/nova/tmp'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement region_name RegionOne'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement project_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement user_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement auth_url http://{{ CONTROLLER_HOST_NAME }}:5000/v3'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement username placement'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement password {{ PLACEMENT_PASS }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} libvirt cpu_mode host-passthrough'
+     - name: RESTART & ENABLE {{ NOVA_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-nova-compute.service'

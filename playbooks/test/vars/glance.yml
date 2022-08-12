@@ -1,0 +1,6 @@
+    - GLANCE_USER_NAME: glance
+    - GLANCE_USER_PASS: openstack
+    - GLANCE_SERVICE_NAME: glance
+    - GLANCE_DB_PASS: openstack
+    - GLANCE_IMAGES_DIR: /glance/images
+    - GLANCE_API_CONF: /etc/glance/glance-api.conf

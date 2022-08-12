@@ -1,0 +1,6 @@
+   - IP_ADDRESS_HOST: 192.168.50.50
+   - RABBIT_PASS: openstack #MODIFIQUE PASS PARA RABBIT
+   - HOST_NAME: lenstack.local.lan #(preferentemente dejar en controller)
+#RHEL_Subscription
+   - RHEL_USER: mathias.gonzalez.assert #MODIFIQUE DATOS DE USUARIO
+   - RHEL_PASS: 35253760m #MODIFIQUE PASSWORD 

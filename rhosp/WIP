@@ -1,0 +1,150 @@
+#################################################
+#Create Roles DATA
+#################################################
+touch /home/stack/osp16/templates/environments/00-roles_data.yaml
+cat <<EOT >> /home/stack/osp16/templates/environments/node-info.yaml
+
+#################################################
+#Create Node Info
+#################################################
+touch /home/stack/osp16/templates/environments/node-info.yaml
+cat <<EOT >> /home/stack/osp16/templates/environments/node-info.yaml
+parameter_defaults:
+  OvercloudControlFlavor: control
+  OvercloudComputeFlavor: baremetal
+  ControllerCount: 1
+  ComputeCount: 0
+  AdminPassword: jksdert
+  NodeRootPassword: jksdert
+  PublicVirtualFixedIPs:  [{'ip_address':'192.168.60.10'}]
+  ExtraConfig:
+    nova::cpu_allocation_ratio: 3.0  
+EOT
+
+#################################################
+#Reserved Memmory
+#################################################
+touch /home/stack/osp16/templates/environments/fix-nova-reserved-host-memory.yaml 
+cat <<EOT >> /home/stack/osp16/templates/environments/fix-nova-reserved-host-memory.yaml 
+parameter_defaults:
+  NovaReservedHostMemory: 2048
+EOT
+
+#############################################################################################
+#Copy roles and network data
+#################################################
+cat <<EOT >> /home/stack/osp16/templates/environments/02-network_data.yaml
+- name: Storage
+  vip: true
+  vlan: 101
+  name_lower: storage
+  ip_subnet: '192.168.101.0/24'
+  allocation_pools: [{'start': '192.168.101.4', 'end': '192.168.101.250'}]
+  ipv6_subnet: 'fd00:fd00:fd00:3000::/64'
+  ipv6_allocation_pools: [{'start': 'fd00:fd00:fd00:3000::10', 'end': 'fd00:fd00:fd00:3000:ffff:ffff:ffff:fffe'}]
+  mtu: 1500
+- name: StorageMgmt
+  name_lower: storage_mgmt
+  vip: true
+  vlan: 102
+  ip_subnet: '192.168.102.0/24'
+  allocation_pools: [{'start': '192.168.102.4', 'end': '192.168.102.250'}]
+  ipv6_subnet: 'fd00:fd00:fd00:4000::/64'
+  ipv6_allocation_pools: [{'start': 'fd00:fd00:fd00:4000::10', 'end': 'fd00:fd00:fd00:4000:ffff:ffff:ffff:fffe'}]
+  mtu: 1500
+- name: InternalApi
+  name_lower: internal_api
+  vip: true
+  vlan: 103
+  ip_subnet: '192.168.103.0/24'
+  allocation_pools: [{'start': '192.168.103.4', 'end': '192.168.103.250'}]
+  ipv6_subnet: 'fd00:fd00:fd00:2000::/64'
+  ipv6_allocation_pools: [{'start': 'fd00:fd00:fd00:2000::10', 'end': 'fd00:fd00:fd00:2000:ffff:ffff:ffff:fffe'}]
+  mtu: 1500
+- name: Tenant
+  vip: false  # Tenant network does not use VIPs
+  name_lower: tenant
+  vlan: 104
+  ip_subnet: '192.168.104.0/24'
+  allocation_pools: [{'start': '192.168.104.4', 'end': '192.168.104.250'}]
+  ipv6_subnet: 'fd00:fd00:fd00:5000::/64'
+  ipv6_allocation_pools: [{'start': 'fd00:fd00:fd00:5000::10', 'end': 'fd00:fd00:fd00:5000:ffff:ffff:ffff:fffe'}]
+  mtu: 1500
+- name: External
+  vip: true
+  name_lower: external
+  vlan: 105
+  ip_subnet: '192.168.60.0/24'
+  allocation_pools: [{'start': '192.168.60.10', 'end': '192.168.60.250'}]
+  gateway_ip: '192.168.60.1'
+  ipv6_subnet: '2001:db8:fd00:1000::/64'
+  ipv6_allocation_pools: [{'start': '2001:db8:fd00:1000::10', 'end': '2001:db8:fd00:1000:ffff:ffff:ffff:fffe'}]
+  gateway_ipv6: '2001:db8:fd00:1000::1'
+  mtu: 1500
+- name: Management
+  # Management network is enabled by default for backwards-compatibility, but
+  # is not included in any roles by default. Add to role definitions to use.
+  enabled: true
+  vip: false  # Management network does not use VIPs
+  name_lower: management
+  vlan: 60
+  ip_subnet: '10.0.1.0/24'
+  allocation_pools: [{'start': '10.0.1.4', 'end': '10.0.1.250'}]
+  gateway_ip: '10.0.1.1'
+  gateway_ipv6: 'fd00:fd00:fd00:6000::1'
+  ipv6_subnet: 'fd00:fd00:fd00:6000::/64'
+  ipv6_allocation_pools: [{'start': 'fd00:fd00:fd00:6000::10', 'end': 'fd00:fd00:fd00:6000:ffff:ffff:ffff:fffe'}]
+  mtu: 1500
+EOT
+
+
+
+######################################################################
+#SI FALLA ESTE PASO ES PORQUE NO ESTA CREADA LA CARPETA OUTPUT Y VACIA
+######################################################################
+THT=/usr/share/openstack-tripleo-heat-templates
+
+
+
+cp $THT/roles_data.yaml /home/stack/osp16/templates/environments/00-roles_data.yaml
+#cp $THT/network_data.yaml /home/stack/osp16/templates/
+mkdir ~/workplace
+mkdir ~/output 
+cp -rp /usr/share/openstack-tripleo-heat-templates/* ~/workplace
+cd /home/stack/workplace/
+tools/process-templates.py -r /home/stack/osp16/templates/environments/00-roles_data.yaml -n /home/stack/osp16/templates/environments/02-network_data.yaml -o /home/stack/osp16/output
+cp /home/stack/osp16/output/environments/network-environment.yaml /home/stack/osp16/templates/environments/10-network-environment.yaml
+sed -i 's/single-nic-vlans/multiple-nics/' /home/stack/osp16/templates/environments/10-network-environment.yaml
+######################################################################
+#Copy Nics template config
+######################################################################
+mkdir -p /home/stack/osp16/multiple-nics/
+cp /home/stack/osp16/output/network/config/multiple-nics/*.yaml /home/stack/osp16/multiple-nics/
+cp /home/stack/osp16/output/network/config/bond-with-vlans/compute.yaml /home/stack/osp16/multiple-nics/
+sed -i 's#../../scripts/run-os-net-config.sh#/usr/share/openstack-tripleo-heat-templates/network/scripts/run-os-net-config.sh#' -i /home/stack/osp16/multiple-nics/*.yaml
+openstack/rhosp/osp16/templates/environments
+
+
+
+
+#HASTA ACA FUNCA TODO
+#################################################
+#Create deploy script
+#################################################
+#REPAIR SCRIPTTTT
+cat <<EOT >> /home/stack/osp16/deploy.sh
+#!/bin/bash
+THT=/usr/share/openstack-tripleo-heat-templates
+CNF=/home/stack/osp16/templates
+
+openstack overcloud deploy --templates $THT \
+-r $CNF/roles_data.yaml \
+-n $CNF/environments/network_data.yaml \
+-e ~/containers-prepare-parameter.yaml \
+-e $CNF/environments/node-info.yaml \
+-e $THT/environments/network-isolation.yaml \
+-e $CNF/environments/network-environment.yaml \
+#-e $THT/environments/ceph-ansible/ceph-ansible.yaml \
+#-e $THT/environments/ceph-ansible/ceph-dashboard.yaml
+EOT
+chmod +x /home/stack/osp16/deploy.sh

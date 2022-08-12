@@ -1,0 +1,144 @@
+---
+- hosts: lenstack.local.lan #Change server
+  no_log: False
+  vars_files:
+    - ./vars/dependencies.yml    
+    - ./vars/placement.yml
+  tasks:
+#########################PLACEMENT INSTALLATION#################################
+     - name: CREATE DB FOR PLACEMENT
+       mysql_db:
+         name: placement
+         state: present
+         login_host: "{{ HOST_NAME}}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER 'placement' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: placement
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/placement.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME}}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE PLACEMENT USER
+       os_user:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: placement
+         password: openstack
+         domain: default
+     - name: ADD PLACEMENT USER TO ADMIN ROLE
+       openstack.cloud.role_assignment:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: placement
+         role: admin
+         project: service
+     - name: CREATE A PLACEMENT SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: placement
+         service_type: placement
+         description: Placement API
+     - name: CREATE A PUBLIC SERVICE FOR PLACEMENT
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR PLACEMENT
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR PLACEMENT
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME}}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: INSTALL PLACEMENT COMPONENTS
+       dnf:
+         name: openstack-placement-api
+         state: present
+     - name: MODIFY PLACEMENT_CONFIG_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} placement_database connection mysql+pymysql://placement:openstack@{{ HOST_NAME }}/placement'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} api auth_strategy keystone'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000/v3'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken username placement'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken password openstack'
+     - name: crear archivo poblar placement db
+       file:
+        path: /home/populate_placementDB.sh
+        state: touch
+     - name: agregar lineas
+       lineinfile:
+         path: /home/populate_placementDB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "placement-manage db sync" placement'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate_placementDB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB placement
+       shell: ./populate_placementDB.sh
+       args:
+        chdir: /home/
+     - name: RESTART HTTPD SERVICES & ENABLE
+       systemd:
+         name: httpd.service
+         state: restarted
+         enabled: yes

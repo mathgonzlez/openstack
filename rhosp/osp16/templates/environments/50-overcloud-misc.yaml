@@ -1,0 +1,7 @@
+parameter_defaults:
+  PublicVirtualFixedIPs:  [{'ip_address':'192.168.60.10'}]
+  AdminPassword: jksdert
+  CloudName: openstack.local.lan
+  CloudDomain: local.lan
+  TimeZone: 'America/Argentina/Buenos_Aires' 
+  NovaComputeLibvirtType: 'kvm'

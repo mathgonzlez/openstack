@@ -1,0 +1,16 @@
+{
+    "nodes": [
+         {
+            "name":"osp16-compute-0",
+            "pm_type":"manual-management",
+            "mac":[
+                "40:2c:f4:e9:f0:c9"
+            ],
+            "cpu":"2",
+            "memory":"4096",
+            "disk":"40",
+            "arch":"x86_64",
+            "capabilities": "profile:compute,boot_option:local"
+               }
+      ]
+}

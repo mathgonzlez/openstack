@@ -1,0 +1,306 @@
+- hosts: controller #Change server
+  vars:
+#                        HOST CONFIG
+    - HOST_NAME: controller
+    - IP_ADDRESS_HOST: 10.0.0.159
+    - OVERLAY_INTERFACE_IP_ADDRESS: 192.168.50.61
+    - PROVIDER_INTERFACE_NAME: team
+    - RABBIT_PASS: openstack
+
+# ZUN
+    - ZUN_SERVICE_NAME: zun
+    - ZUN_DB_PASS: openstack
+    - ZUN_USER_PASS: openstack
+    - ZUN_CONF_FILE: /etc/zun/zun.conf
+
+  no_log: False
+  tasks:
+################
+# CONTROLLER INSTALL
+     - name: CREATE DB FOR '{{ ZUN_SERVICE_NAME }}'
+       mysql_db:
+         name: '{{ ZUN_SERVICE_NAME }}'
+         state: present
+         login_host: '{{ HOST_NAME}}' #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ ZUN_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: '{{ ZUN_SERVICE_NAME }}'
+         password: '{{ ZUN_DB_PASS }}' 
+         host: '{{ item }}'
+         priv: '*.*:ALL/{{ ZUN_SERVICE_NAME }}.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE '{{ ZUN_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ ZUN_SERVICE_NAME }}'
+         password: '{{ ZUN_USER_PASS }}'
+         domain: default
+     - name: ADD USER '{{ ZUN_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: '{{ ZUN_SERVICE_NAME }}'
+         role: admin
+         project: service
+     - name: CREATE A '{{ ZUN_SERVICE_NAME }}' SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ ZUN_SERVICE_NAME }}'
+         service_type: container
+         description: Container Service
+     - name: CREATE A PUBLIC SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE ZUN GROUP
+       group:
+         name: zun
+         state: present
+     - name: ADD ZUN USER
+       user:
+         name: zun
+         create_home: yes
+         home: /var/lib/zun
+         group: zun
+         system: yes
+         shell: /bin/false
+     - name: RECURSIVELY CHANGE OWNER OF ZUN FOLDER
+       file:
+         path: /etc/zun
+         state: directory
+         owner: zun
+         group: zun
+     - name: INSTALL ZUN COMPONENTS
+       yum:
+         name: python3-pip, git, python3-devel, libffi-devel, gcc, openssl-devel
+         state: present
+     - name: CLONE ZUN REPO
+       git:
+         repo: https://opendev.org/openstack/zun.git
+         dest: /var/lib/zun/zun
+         version: stable/ussuri
+     - name: RECURSIVELY CHANGE OWNER OF ZUN FOLDER
+       file:
+         path:  /var/lib/zun/zun
+         state: directory
+         owner: zun
+         group: zun
+         recurse: yes
+     - name: UPGRADE PIP MODULE
+       pip:
+         name:  pip
+         extra_args: --upgrade
+         executable: pip-3
+     - name: UPGRADE SETUPTOOLS WITH PIP2
+       pip:
+         name:  setuptools
+         extra_args: --upgrade
+         executable: pip
+     - name: MODIFY ZUN-API.SERVICE UPSTART CFG
+       lineinfile:
+         path: /var/lib/zun/zun/requirements.txt
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'enmerkar>=0.7.1'
+         - 'pyScss>=1.3.7'
+         - 'Django<3.0,>=2.2'
+     - name: INSTALL REQUIREMENTS FOR ZUN
+       pip:
+         requirements:  /var/lib/zun/zun/requirements.txt
+         executable: pip-3
+     - name: SCRIPT FOR INSTALL ZUN
+       file:
+        path:  /var/lib/zun/zun/zun.sh
+        state: touch
+     - name: MODIFY SCRIPT
+       lineinfile:
+         path:  /var/lib/zun/zun/zun.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'python3 setup.py install'
+         - 'echo "LISTO"'
+     - name: CHMOD +X ZUN.SH
+       shell: chmod +x zun.sh
+       args:
+        chdir:  /var/lib/zun/zun
+     - name: RUN INSTALLER ZUN SCRIPT
+       shell: ./zun.sh >> zun.txt
+       args:
+        chdir:  /var/lib/zun/zun
+     - name: SCRIPT FOR INSTALL zun config gen
+       file:
+        path:  /var/lib/zun/zun/zun-config-generator.conf.sh
+        state: touch
+     - name: MODIFY SCRIPT
+       lineinfile:
+         path:  /var/lib/zun/zun/zun-config-generator.conf.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "oslo-config-generator --config-file etc/zun/zun-config-generator.conf" zun'
+         - 'su -s /bin/sh -c "cp etc/zun/zun.conf.sample /etc/zun/zun.conf" zun'
+         - 'su -s /bin/sh -c "cp etc/zun/api-paste.ini /etc/zun" zun'
+         - 'echo "LISTO"'
+     - name: CHMOD +X KURYR.SH
+       shell: chmod +x zun-config-generator.conf.sh
+       args:
+        chdir:  /var/lib/zun/zun/
+     - name: RUN INSTALLER KURYR SCRIPT
+       shell: ./zun-config-generator.conf.sh >> zun_debug.txt
+       args:
+        chdir:  /var/lib/zun/zun/
+     - name: MODIFY ZUN_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ ZUN_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@controller'
+         - 'crudini --set {{ ZUN_CONF_FILE }} api host_ip {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} api port 9517'
+         - 'crudini --set {{ ZUN_CONF_FILE }} database connection mysql+pymysql://zun:{{ ZUN_DB_PASS }}@controller/zun'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth memcached_servers controller:11211'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth www_authenticate_uri http://controller:5000'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth project_domain_name default'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth project_name service'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth user_domain_name defaultr'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth password {{ ZUN_USER_PASS }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth username {{ ZUN_SERVICE_NAME }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth auth_url http://controller:5000'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth auth_type password'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth auth_version v3'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth auth_protocol http'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth service_token_roles_required True'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_auth endpoint_type internalURL'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'        
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken username {{ ZUN_SERVICE_NAME }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken password {{ ZUN_SERVICE_NAME }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken auth_version v3'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken auth_protocol http'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken service_token_roles_required True'
+         - 'crudini --set {{ ZUN_CONF_FILE }} keystone_authtoken endpoint_type internalURL'
+         - 'crudini --set {{ ZUN_CONF_FILE }} oslo_concurrency lock_path /var/lib/zun/tmp'
+         - 'crudini --set {{ ZUN_CONF_FILE }} oslo_messaging_notifications driver messaging'
+         - 'crudini --set {{ ZUN_CONF_FILE }} websocket_proxy wsproxy_host {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ ZUN_CONF_FILE }} websocket_proxy wsproxy_port 6784'
+         - 'crudini --set {{ ZUN_CONF_FILE }} websocket_proxy base_url ws://controller:6784/'
+     - name: RECURSIVELY CHANGE OWNER OF {{ ZUN_CONF_FILE }} FOLDER
+       file:
+         path: /etc/zun/zun.conf
+         owner: zun
+         group: zun
+         recurse: yes
+     - name: POPULATE ZUN DATABASE
+       shell: 'su -s /bin/sh -c "zun-db-manage upgrade" zun'
+       args:
+         executable: /bin/sh
+     - name: CREATE ZUN-API.SERVICE FILE
+       file:
+         path: "/etc/systemd/system/zun-api.service"
+         state: touch
+     - name: MODIFY ZUN-API.SERVICE UPSTART CFG
+       lineinfile:
+         path: /etc/systemd/system/zun-api.service
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - '[Unit]'
+         - 'Description = OpenStack Container Service API'
+         - ''
+         - '[Service]'
+         - 'ExecStart = /usr/local/bin/zun-api'
+         - 'User = zun'
+         - '[Install]'
+         - 'WantedBy = multi-user.target'
+     - name: CREATE ZUN-WSPROXY.SERVICE FILE
+       file:
+         path: "/etc/systemd/system/zun-wsproxy.service"
+         state: touch
+     - name: MODIFY ZUN-WSPROXY.SERVICE UPSTART CFG
+       lineinfile:
+         path: /etc/systemd/system/zun-wsproxy.service
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - '[Unit]'
+         - 'Description = OpenStack Container Service Websocket Proxy'
+         - ''
+         - '[Service]'
+         - 'ExecStart = /usr/local/bin/zun-wsproxy'
+         - 'User = zun'
+         - '[Install]'
+         - 'WantedBy = multi-user.target'         
+     - name: START & ENABLE ZUN COMPONENTS
+       systemd:
+         name: "{{ item }}"
+         state: started
+         enabled: yes
+       with_items:
+         - 'zun-api'
+         - 'zun-wsproxy'
+### COMPUTE INSTALLATION
+#PREREQ
+

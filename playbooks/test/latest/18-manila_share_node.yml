@@ -1,0 +1,97 @@
+---
+- hosts: controller #Change server
+  vars:
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+    - MANILA_SERVICE_NAME: manila
+    - MANILA_SERVICE_NAMEv2: manilav2
+    - MANILA_CONF_FILE: /etc/manila/manila.conf
+    - MANILA_USER_NAME: manila
+    - MANILA_DBPASS: openstack
+    - MANILA_USER_PASS: openstack
+    - MANILA_SERVICE_PORT: xxxx
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: install {{ MANILA_SERVICE_NAME }} components
+       dnf:
+         name: openstack-manila-share, python3-PyMySQL
+         state: present
+     - name: MODIFY MANILA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ MANILA_CONF_FILE }} database connection mysql+pymysql://manila:{{ MANILA_DBPASS }}@controller/manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT transport_url rabbit://openstack:openstack@controller'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT default_share_type default_share_type'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT rootwrap_config /etc/manila/rootwrap.conf'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken memcached_servers controller:11211'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_uri http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_url http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken project_domain_id default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken user_domain_id default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken username manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken password {{ MANILA_USER_PASS }}'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT my_ip 192.168.50.60'
+         - 'crudini --set {{ MANILA_CONF_FILE }} oslo_concurrency lock_path /var/lib/manila/tmp'
+     - name: install {{ MANILA_SERVICE_NAME }} components
+       dnf:
+         name: openstack-neutron, openstack-neutron-linuxbridge, ebtables
+         state: present
+     - name: MODIFY MANILA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT enabled_share_backends generic'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT enabled_share_protocols NFS'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron url http://controller:9696'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron auth_uri http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron auth_url http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron memcached_servers controller:11211'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron auth_type password'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron project_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron user_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron region_name RegionOne'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron project_name service'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron username neutron'
+         - 'crudini --set {{ MANILA_CONF_FILE }} neutron password openstack'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova auth_uri http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova auth_url http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova memcached_servers controller:11211'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova auth_type password'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova project_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova user_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova region_name RegionOne'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova pproject_name service'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova username nova'
+         - 'crudini --set {{ MANILA_CONF_FILE }} nova password openstack'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder auth_uri http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder auth_url http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder memcached_servers controller:11211'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder auth_type password'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder project_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder user_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder region_name RegionOne'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder pproject_name service'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder username cinder'
+         - 'crudini --set {{ MANILA_CONF_FILE }} cinder password openstack'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic share_backend_name GENERIC'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic share_driver manila.share.drivers.generic.GenericShareDriver'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic driver_handles_share_servers True'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic service_instance_flavor_id 100'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic service_image_name manila-service-image'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic service_instance_user manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic service_instance_password manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} generic interface_driver manila.network.linux.interface.BridgeInterfaceDriver'
+#-------------------------------------------------------------------------------
+     - name: RESTART & ENABLE {{ NOVA_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+        - 'openstack-manila-share.service'

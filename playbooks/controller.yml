@@ -1,0 +1,8 @@
+---
+- import_playbook: ./latest/01-dependencies_controller.yml
+- import_playbook: ./latest/02-keystone.yml
+- import_playbook: ./latest/03-glance.yml
+- import_playbook: ./latest/04-placement.yml
+- import_playbook: ./latest/05-nova.yml
+- import_playbook: ./latest/06-neutron.yml
+- import_playbook: ./latest/07-cinder_controller.yml

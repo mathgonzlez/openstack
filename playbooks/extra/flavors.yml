@@ -1,0 +1,143 @@
+- name : Create Flavor m1.tiny
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m1.tiny (1vcpu 1hd 1ram)
+  ram: 1024
+  vcpus: 1
+  disk: 1
+- name : Create Flavor m1.small
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m1.small (1vcpu 3hd 2ram)
+  ram: 2048
+  vcpus: 1
+  disk: 3
+- name : Create Flavor m1.medium
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m1.medium (3vcpu 8hd 4ram)
+  ram: 4096
+  vcpus: 1
+  disk: 8
+- name : Create Flavor m2.medium
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m2.medium (2vcpu 16hd 4ram)
+  ram: 4096
+  vcpus: 2
+  disk: 16
+- name : Create Flavor m2.large
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m2.large (2vcpu 24hd 6ram)
+  ram: 6144
+  vcpus: 2
+  disk: 24
+- name : Create Flavor m3.large
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m3.large (3vcpu 24hd 6ram)
+  ram: 6144
+  vcpus: 3
+  disk: 24
+- name : Create Flavor m3.xlarge
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m3.xlarge (3vcpu 32hd 8ram)
+  ram: 8192
+  vcpus: 3
+  disk: 32
+- name : Create Flavor m4.large
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m4.large (4vcpu 32hd 6ram)
+  ram: 6144
+  vcpus: 4
+  disk: 32
+- name : Create Flavor m4.xlarge
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m4.xlarge (4vcpu 50hd 8ram)
+  ram: 8192
+  vcpus: 4
+  disk: 50
+- name : Create Flavor m6.xlarge
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m4.xlarge (6vcpu 50hd 12ram)
+  ram: 12288
+  vcpus: 6
+  disk: 55
+- name : Create Flavor m6.xxlarge
+os_nova_flavor:
+  auth:
+    auth_url: http://controller:5000
+    username: admin
+    password: openstack
+    project_name: admin
+    domain_name: Default
+  state: present
+  name: m4.xlarge (6vcpu 50hd 16ram)
+  ram: 16384
+  vcpus: 6
+  disk: 60

@@ -1,0 +1,38 @@
+---
+- hosts: {{ HOST_NAME }} #Change server
+  vars_files:
+    - ./vars/dependencies.yml    
+    - ./vars/rally.yml
+  no_log: False
+  tasks:
+##########################################
+     - name: CREATE DB FOR '{{ RALLY_SERVICE_NAME }}'
+       mysql_db:
+         name: '{{ RALLY_SERVICE_NAME }}'
+         state: present
+         login_host: "{{ HOST_NAME }}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ RALLY_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: '{{ RALLY_SERVICE_NAME }}'
+         password: '{{ RALLY_DB_PASS }}' 
+         host: '{{ item }}'
+         priv: '*.*:ALL/gnocchi.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: INSTALL '{{ RALLY_SERVICE_NAME }}' COMPONENTS
+       dnf:
+         name:  openstack-rally, openstack-rally-plugins, python3-fixtures
+         state: present
+     - name: MODIFY '{{ RALLY_SERVICE_NAME }}' CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ RALLY_CONF_FILE }} DEFAULT log_file rally.log'
+         - 'crudini --set {{ RALLY_CONF_FILE }} DEFAULT log_dir /var/log/rally'
+         - 'crudini --set {{ RALLY_CONF_FILE }} database connection mysql+pymysql://rally:openstack@{{ HOST_NAME }}/rally'

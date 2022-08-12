@@ -1,0 +1,4 @@
+---
+- import_playbook: ./latest/01-dependencies_compute.yml
+- import_playbook: ./latest/11-nova_compute.yml
+- import_playbook: ./latest/12-neutron_compute.yml

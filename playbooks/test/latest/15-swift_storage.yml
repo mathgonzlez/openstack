@@ -1,0 +1,86 @@
+---
+- hosts: storage #Change server
+  vars:
+    - SWIFT_SERVICE_NAME: swift
+    - SWIFT_DBPASS: openstack
+    - SWIFT_USER_NAME: swift
+    - STORAGE_MGMT_IP: 192.168.50.80 
+    - ACCOUNT_SERVER_SERVICE_PORT: 6202
+    - CONTAINER_SERVICE_PORT: 6201
+    - OBJECT_SERVER_SERVICE_PORT: 6200
+    - ACCOUNT_SERVER_CONF_FILE: /etc/swift/account-server.conf
+    - CONTAINER_CONF_FILE: /etc/swift/container-server.conf
+    - OBJECT_SERVER_CONF_FILE: /etc/swift/object-server.conf
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: install '{{ SWIFT_SERVICE_NAME }}'
+       dnf:
+         name: xfsprogs, rsync, openstack-swift-account, openstack-swift-container, openstack-swift-object
+         state: present
+     - name: Download account-server conf file
+       get_url:
+         url: https://opendev.org/openstack/swift/raw/branch/master/etc/account-server.conf-sample
+         dest: /etc/swift/account-server.conf
+     - name: Download container-server conf file
+       get_url:
+         url: https://opendev.org/openstack/swift/raw/branch/master/etc/container-server.conf-sample
+         dest: /etc/swift/container-server.conf
+     - name: Download object-server conf file
+       get_url:
+         url: https://opendev.org/openstack/swift/raw/branch/master/etc/object-server.conf-sample
+         dest: /etc/swift/object-server.conf
+     - name: MODIFY ACCOUNT_SERVER_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT bind_ip {{ STORAGE_MGMT_IP }}'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT bind_port {{ ACCOUNT_SERVER_SERVICE_PORT }}'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT user {{ SWIFT_USER_NAME }}'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT swift_dir /etc/swift'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT devices /srv/node'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} DEFAULT mount_check True'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} pipeline:main pipeline healthcheck recon account-server'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} filter:recon use egg:swift#recon'
+         - 'crudini --set {{ ACCOUNT_SERVER_CONF_FILE }} filter:recon recon_cache_path /var/cache/swift'
+     - name: MODIFY CONTAINER_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT bind_ip {{ STORAGE_MGMT_IP }}'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT bind_port {{ CONTAINER_SERVICE_PORT }}'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT user {{ SWIFT_USER_NAME }}'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT swift_dir /etc/swift'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT devices /srv/node'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} DEFAULT mount_check True'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} pipeline:main pipeline healthcheck recon container-server'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} filter:recon use egg:swift#recon'
+         - 'crudini --set {{ CONTAINER_CONF_FILE }} filter:recon recon_cache_path /var/cache/swift'
+     - name: MODIFY OBJECT_SERVER_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT bind_ip {{ STORAGE_MGMT_IP }}'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT bind_port {{ OBJECT_SERVER_SERVICE_PORT }}'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT user {{ SWIFT_USER_NAME }}'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT swift_dir /etc/swift'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT devices /srv/node'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} DEFAULT mount_check True'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} pipeline:main pipeline healthcheck recon object-server'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} filter:recon use egg:swift#recon'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} filter:recon recon_cache_path /var/cache/swift'
+         - 'crudini --set {{ OBJECT_SERVER_CONF_FILE }} filter:recon recon_lock_path /var/lock'
+     - name: Change structure mount point dir
+       file:
+         path: /srv/node
+         state: directory
+         owner: swift
+         group: swift 
+     - name: Create recon dir
+       ansible.builtin.file:
+         path: /var/cache/swift
+         state: directory
+         owner: root
+         group: swift
+         mode: '775'
+

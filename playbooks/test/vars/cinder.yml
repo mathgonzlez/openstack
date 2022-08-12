@@ -1,0 +1,6 @@
+    - CINDER_SERVICE_NAME: cinder
+    - CINDER_DBPASS: openstack
+    - CINDER_SERVICE_PORT: 8776
+    - CINDER_CONF_FILE: /etc/cinder/cinder.conf
+    - NOVA_CONF: /etc/nova/nova.conf
+    - RABBIT_PASS: openstack

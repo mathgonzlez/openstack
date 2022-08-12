@@ -1,1 +1,3 @@
-# openstack
+OS WIP
+
+VANILLA + REDHAT

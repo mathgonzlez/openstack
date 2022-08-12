@@ -1,0 +1,3 @@
+  ExtraConfig:
+    nova::compute::reserved_host_memory: 2048
+    nova::cpu_allocation_ratio: 3.0

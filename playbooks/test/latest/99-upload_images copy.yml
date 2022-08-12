@@ -1,0 +1,96 @@
+---
+- hosts: controller #Change server
+  vars:
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+#ALPINE
+    - alpine_vm_name: alpine13
+    - alpine_file: /mnt/NAS/images/alpine/alpine13
+#DEBIAN
+    - debian10_vm_name: debian10
+    - debian10_file: /mnt/NAS/images/debian10/debian10
+#UBUNTU
+    - ubuntu_vm_name: ubuntu
+    - ubuntu_file: /mnt/NAS/images/ubuntu
+#RHEL8
+    - rhel8_vm_name: rhel8.3
+    - rhel8_file: /mnt/NAS/images/rhel8.3/rhel8.3
+#ORACLE8
+    - oracle8_vm_name: oracle8
+    - oracle8_file: /mnt/NAS/images/oracle8/oracle8
+#ALMA
+    - alma_vm_name: alma
+    - alma_file: /mnt/NAS/images/alma/alma
+  no_log: False
+  tasks:
+#################################ALPINE
+    - name : Upload '{{ alpine_vm_name }}' image to openstack
+      os_image:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        name: "{{ alpine_vm_name }}"
+        state: present
+        container_format: bare
+        disk_format: qcow2
+        filename: "{{ alpine_file }}"
+#################################DEBIAN10
+    - name : Upload '{{ debian10_vm_name }}' image to openstack
+      os_image:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        name: "{{ debian10_vm_name }}"
+        state: present
+        container_format: bare
+        disk_format: qcow2
+        filename: "{{ debian10_file }}"        
+#################################RHEL8
+    - name : Upload '{{ rhel8_vm_name}}' image to openstack
+      os_image:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        name: "{{ rhel8_vm_name }}"
+        state: present
+        container_format: bare
+        disk_format: qcow2
+        filename: "{{ rhel8_file }}"        
+#################################ORACLE8
+    - name : Upload '{{ oracle8_vm_name }}' image to openstack
+      os_image:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        name: "{{ oracle8_vm_name }}"
+        state: present
+        container_format: bare
+        disk_format: qcow2
+        filename: "{{ oracle8_file }}"        
+#################################ORACLE8
+    - name : Upload '{{ alma_vm_name }}' image to openstack
+      os_image:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        name: "{{ alma_vm_name }}"
+        state: present
+        container_format: bare
+        disk_format: qcow2
+        filename: "{{ alma_file }}"        

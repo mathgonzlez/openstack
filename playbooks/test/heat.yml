@@ -1,0 +1,184 @@
+---
+- hosts: compute-vm #NOMBRE DEL SERVIDOR EN ARCHIVO HOST DE ANSIBLE
+  vars_files:
+    - .\vars\dependencies.yml
+  tasks:
+#-------------------------------------------------------------------------------
+#########################NOVA INSTALLATION######################################
+     - name: CREATE DB FOR {{ HEAT_SERVICE_NAME }}
+       mysql_db:
+         name: "{{ HEAT_USER_NAME }}"
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ HEAT_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: "{{ HEAT_SERVICE_NAME }}"
+         password: "{{ HEAT_DB_PASS }}"
+         host: '{{ item }}'
+         priv: '*.*:ALL/"{{ HEAT_SERVICE_NAME }}".*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE '"{{ HEAT_SERVICE_NAME }}"' USER
+       os_user:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ HEAT_USER_NAME }}"
+         password: "{{ HEAT_USER_PASS }}"
+         domain: default
+     - name: ADD USER '"{{ HEAT_SERVICE_NAME }}"' TO ADMIN ROLE 
+       openstack.cloud.role_assignment:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ HEAT_USER_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE HEAT SERVICE FOR IMAGE
+       os_keystone_service:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ HEAT_SERVICE_NAME }}"
+         service_type: orchestration
+         description: Orchestration
+     - name: CREATE HEAT SERVICE FOR IMAGE
+       os_keystone_service:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: heat-cfn
+         service_type: cloudformation
+         description: Orchestration
+     - name: CREATE ENDPOINTS FOR HEAT
+       file:
+        path: /home/{{ HEAT_SERVICE_NAME }}.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/{{ HEAT_SERVICE_NAME }}.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'source /home/admin-openrc.sh'
+         - 'openstack endpoint create --region RegionOne orchestration public http://controller:8004/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne orchestration internal http://controller:8004/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne orchestration admin http://controller:8004/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne cloudformation public http://controller:8000/v1'
+         - 'openstack endpoint create --region RegionOne cloudformation internal http://controller:8000/v1'
+         - 'openstack endpoint create --region RegionOne cloudformation admin http://controller:8000/v1'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x {{ HEAT_SERVICE_NAME }}.sh
+       args:
+        chdir: /home/
+     - name: Run API endpoints creation
+       shell: ./{{ HEAT_SERVICE_NAME }}.sh
+       args:
+        chdir: /home/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     - name: install '{{ HEAT }}'
+       dnf:
+         name: openstack-heat-api openstack-heat-api-cfn openstack-heat-engine
+         state: present
+     - name: MODIFY HEAT CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ HEAT_CONF_FILE }} database connection mysql+pymysql://heat:{{ HEAT_DBPASS }}@controller/heat'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@controller'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken www_authenticate_uri http://controller:5000'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken auth_url http://controller:5000'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken memcached_servers controller:11211'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken username heat'
+         - 'crudini --set {{ HEAT_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ HEAT_CONF_FILE }} trustee auth_type password'
+         - 'crudini --set {{ HEAT_CONF_FILE }} trustee auth_url http://controller:5000'
+         - 'crudini --set {{ HEAT_CONF_FILE }} trustee username heat'
+         - 'crudini --set {{ HEAT_CONF_FILE }} trustee password openstack'
+         - 'crudini --set {{ HEAT_CONF_FILE }} trustee user_domain_name default'
+         - 'crudini --set {{ HEAT_CONF_FILE }} clients_keystone auth_uri http://controller:5000'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT heat_metadata_server_url http://controller:8000'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT heat_waitcondition_server_url http://controller:8000/v1/waitcondition'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT stack_domain_admin heat_domain_admin'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT stack_domain_admin_password openstack'
+         - 'crudini --set {{ HEAT_CONF_FILE }} DEFAULT stack_user_domain_name heat'
+     - name: POPULATE DB FOR HEAT SERVICE
+       file:
+        path: /home/populate{{ HEAT_SERVICE_NAME }}DB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate{{ HEAT_SERVICE_NAME }}DB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "heat-manage db_sync" {{ HEAT_SERVICE_NAME }}'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate{{ HEAT_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB service
+       shell: ./populate{{ HEAT_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: START AND ENABLE HEAT API & ENGINE
+       systemd:
+         name: "{{ item }}"
+         state: started
+         enabled: yes
+       with_items:
+         - openstack-heat-api.service
+         - openstack-heat-api-cfn.service
+         - openstack-heat-engine.service

@@ -1,0 +1,295 @@
+---
+- hosts: controller #Change server
+  vars:
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+    - RABBIT_PASS: openstack
+    - IP_ADDRESS_HOST: 192.168.50.60
+#                        CEILOMETER & GNOCCHI SPECIFIC VARS
+    - CEILOMETER_SERVICE_NAME: ceilometer
+    - GNOCCHI_SERVICE_NAME: gnocchi
+    - GNOCCHI_DB_PASS: openstack
+    - GNOCCHI_PORT: 8041
+    - GNOCCHI_CONF: /etc/gnocchi/gnocchi.conf
+    - PIPELINE_CONF:  /etc/ceilometer/pipeline.yaml 
+    - CEILOMETER_CONF:  /etc/ceilometer/ceilometer.conf
+#NOVA
+    - NOVA_CONF_FILE: /etc/nova/nova.conf
+  no_log: False
+  tasks:
+#########################CEILOMETER & GNOCCHI INSTALLATION####################################
+###########################CGNOCCHI
+     - name: Install the 'Development tools' package group
+       dnf:
+         name: '@Development tools'
+         state: present
+     - name: Install wsgi for Python 3.3 specifically, using the 'pip3.3' executable
+       pip:
+         name: uwsgi
+         executable: pip3
+     - name: CREATE '{{ GNOCCHI_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ GNOCCHI_SERVICE_NAME }}'
+         password: openstack
+         domain: default
+     - name: ADD USER '{{ GNOCCHI_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: '{{ GNOCCHI_SERVICE_NAME }}'
+         role: admin
+         project: service
+     - name: CREATE A '{{ GNOCCHI_SERVICE_NAME }}' SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ GNOCCHI_SERVICE_NAME }}'
+         service_type: metric
+         description: Metric Service
+     - name: CREATE A PUBLIC SERVICE FOR '{{ GNOCCHI_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: gnocchi
+         endpoint_interface: public
+         url: http://{{ IP_ADDRESS_HOST }}:8041
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR '{{ GNOCCHI_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: gnocchi
+         endpoint_interface: internal
+         url: http://{{ IP_ADDRESS_HOST }}:8041
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR '{{ GNOCCHI_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: gnocchi
+         endpoint_interface: admin
+         url: http://{{ IP_ADDRESS_HOST }}:8041
+         region: RegionOne
+         state: present
+     - name: CREATE DB FOR '{{ GNOCCHI_SERVICE_NAME }}'
+       mysql_db:
+         name: '{{ GNOCCHI_SERVICE_NAME }}'
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ GNOCCHI_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: '{{ GNOCCHI_SERVICE_NAME }}'
+         password: '{{ GNOCCHI_DB_PASS }}' 
+         host: '{{ item }}'
+         priv: '*.*:ALL/gnocchi.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: INSTALL '{{ GNOCCHI_SERVICE_NAME }}' COMPONENTS
+       dnf:
+         name:  openstack-gnocchi-api, openstack-gnocchi-metricd, python3-gnocchiclient
+         state: present
+     - name: CHECK GNOCCHI CONF FILE
+       stat: path=/etc/gnocchi/gnocchi.conf
+       register: gnocchi_stat
+     - name: BKP GNOCCHI CONF FILE
+       command: mv /etc/gnocchi/gnocchi.conf /etc/gnocchi/gnocchi.conf.org
+       when: gnocchi_stat.stat.exists
+     - name: CREATE GNOCCHI CONF FILE AND CHANGE PERMISSIONS
+       ansible.builtin.file:
+         path: /etc/gnocchi/gnocchi.conf
+         group: gnocchi
+         mode: '0644'
+         state: touch
+     - name: MODIFY GNOCCHI CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ GNOCCHI_CONF }} DEFAULT log_dir /var/log/gnocchi'
+         - 'crudini --set {{ GNOCCHI_CONF }} api auth_mode keystone'
+         - 'crudini --set {{ GNOCCHI_CONF }} database backend sqlalchemy'
+         - 'crudini --set {{ GNOCCHI_CONF }} indexer url mysql+pymysql://gnocchi:openstack@{{ IP_ADDRESS_HOST}}/gnocchi'
+         - 'crudini --set {{ GNOCCHI_CONF }} storage driver file'
+         - 'crudini --set {{ GNOCCHI_CONF }} storage file_basepath /var/lib/gnocchi'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken www_authenticate_uri http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken auth_url http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken memcached_servers {{ IP_ADDRESS_HOST }}:11211'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken project_name service'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken username {{ GNOCCHI_SERVICE_NAME }}'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken password openstack'
+         - 'crudini --set {{ GNOCCHI_CONF }} keystone_authtoken service_token_roles_required true'
+     - name: START GNOCCHI
+       shell: su -s /bin/bash gnocchi -c "gnocchi-upgrade"
+     - name: RESTART & ENABLE {{ GNOCCHI_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-gnocchi-metricd'
+         - 'openstack-gnocchi-api'
+         - 'httpd'
+###########################CCEILOMETER CONTROLLER
+     - name: CREATE '{{ CEILOMETER_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ CEILOMETER_SERVICE_NAME }}'
+         password: openstack
+         domain: default
+     - name: ADD USER '{{ CEILOMETER_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: '{{ CEILOMETER_SERVICE_NAME }}'
+         role: admin
+         project: service
+     - name: CREATE A '{{ CEILOMETER_SERVICE_NAME }}' SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ CEILOMETER_SERVICE_NAME }}'
+         service_type: metering
+         description: OpenStack Telemetry Service
+     - name: INSTALL '{{ CEILOMETER_SERVICE_NAME }}' COMPONENTS
+       dnf:
+         name:  openstack-ceilometer-central, openstack-ceilometer-notification, python3-ceilometerclient
+         state: present
+     - name: MODIFY CEILOMETER CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ CEILOMETER_CONF }} DEFAULT transport_url rabbit://openstack:openstack@controller'
+         - 'crudini --set {{ CEILOMETER_CONF }} api auth_mode keystone'
+         - 'crudini --set {{ CEILOMETER_CONF }} dispatcher_gnocchi filter_service_activity False'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken www_authenticate_uri http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken auth_url http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken memcached_servers {{ IP_ADDRESS_HOST }}:11211'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken project_name service'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken username {{ GNOCCHI_SERVICE_NAME }}'
+         - 'crudini --set {{ CEILOMETER_CONF }} keystone_authtoken password openstack'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials auth_url http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials memcached_servers {{ IP_ADDRESS_HOST }}:11211'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials auth_type password'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials project_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials user_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials project_name service'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials username {{ CEILOMETER_SERVICE_NAME }}'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials password openstack'
+     - name: Create file
+       file:
+        path: /home/ceilometer-upgrade.sh
+        state: touch
+     - name: Add to file
+       lineinfile:
+         path: /home/ceilometer-upgrade.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/bash ceilometer -c "ceilometer-upgrade --skip-metering-database"'
+         - 'echo "LISTO"'
+     - name: Chmod
+       shell: chmod +x ceilometer-upgrade.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./ceilometer-upgrade.sh
+       args:
+        chdir: /home/
+     - name: RESTART & ENABLE {{ NOVA_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-ceilometer-central'
+         - 'openstack-ceilometer-notification'
+###########################CEILOMETER COMPUTE
+     - name: INSTALL '{{ CEILOMETER_SERVICE_NAME }}' COMPUTE COMPONENTS
+       dnf:
+         name:  openstack-ceilometer-compute
+         state: present
+     - name: MODIFY CEILOMETER CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ CEILOMETER_CONF }} DEFAULT transport_url rabbit://openstack:openstack@controller'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials auth_url http://{{ IP_ADDRESS_HOST }}:5000'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials memcached_servers {{ IP_ADDRESS_HOST }}:11211'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials auth_type password'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials project_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials user_domain_name default'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials project_name service'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials username {{ CEILOMETER_SERVICE_NAME }}'
+         - 'crudini --set {{ CEILOMETER_CONF }} service_credentials password openstack'
+     - name: MODIFY NOVA CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT instance_usage_audit True'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT instance_usage_audit_period hour'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT notify_on_state_change vm_and_task_state'
+         - 'crudini --set {{ NOVA_CONF_FILE }} oslo_messaging_notifications driver messagingv2'
+     - name: RESTART & ENABLE CEILOMETER & NOVA SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-ceilometer-compute.service'         
+         - 'openstack-nova-compute.service'           

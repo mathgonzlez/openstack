@@ -1,0 +1,117 @@
+sudo subscription-manager list --available
+subscription-manager register --username mathgonzlez --password 35253760m
+sudo subscription-manager attach --pool=2c9280817af91203017b0a5014c56bbc
+######################################################
+# PROJECT
+######################################################
+#QUOTAS
+openstack quota set --instances 1000 admin
+openstack quota set --cores 100 admin
+openstack quota set --ram 128000 admin
+######################################################
+# KEYSTONE
+######################################################
+#Keyston vars
+export OS_USERNAME=admin
+export OS_PASSWORD=openstack
+export OS_PROJECT_NAME=admin
+export OS_USER_DOMAIN_NAME=Default
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_AUTH_URL=http://controller:5000/v3
+export OS_IDENTITY_API_VERSION=3
+#CEILOMETER VARS
+export OS_AUTH_TYPE=password
+export OS_USERNAME=user
+export OS_PASSWORD=pass
+export OS_TENANT_NAME=myproject
+export OS_AUTH_URL=http://auth.example.com:5000/v2.0
+######################################################
+# HORIZON
+######################################################
+/etc/httpd/conf.d/00-placement-api.conf
+#NOVA REPAIR
+<Directory /usr/bin>
+    <IfVersion >= 2.4>
+        Require all granted
+    </IfVersion>
+    <IfVersion < 2.4>
+        Order allow,deny
+        Allow from all
+    </IfVersion>
+</Directory>
+# PLACEMENTE REPAIR
+  <Directory /usr/bin>
+    Require all denied
+    <Files "placement-api">
+      <RequireAll>
+        Require all granted
+        Require not env blockAccess
+      </RequireAll>
+    </Files>
+  </Directory>
+#-------------------------------------------------------------------------------
+Horizon does not log in with:
+OPENSTACK_KEYSTONE_URL = "http: //% s / identity / v3"% OPENSTACK HOST"
+
+must be replaced with:
+OPENSTACK_KEYSTONE_URL =" http: //% s: 5000 / v3 "% OPENSTACK_HOST"
+
+Build ussuri on Rhel8.2
+#-------------------------------------------------------------------------------
+######################################################
+# NOVA
+######################################################
+su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova
+#         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT state_path /nova'
+
+######################################################
+# MAnila
+######################################################
+manila share-network-create --name demo-share-network1 \
+--neutron-net-id  aadb0e88-1a9b-4d45-b496-7d595d0eafa9 \
+--neutron-subnet-id 1a341d70-707a-4a69-b28a-4b6d679e0f10
+######################################################
+# CINDER
+######################################################
+wipefs -a /dev/sdc
+pvcreate /dev/sdc 
+vgcreate "cinder-volumes" /dev/sdc
+######################################################
+# GLANCE
+######################################################
+wget http://download.cirros-cloud.net/0.4.0/cirros-0.4.0-x86_64-disk.img
+glance image-create --name "cirros" --file cirros-0.4.0-x86_64-disk.img --disk-format qcow2 --container-format bare --visibility=public
+openstack image create --property hypervisor_type=hyperv --public --container-format bare --disk-format vhd --file ./alpine alpine_hv
+######################################################
+# SERVICES ON CONTAINERS
+######################################################
+# HORIZON >>>>>>>>>>>>> TESTEAR
+sudo docker run -d \
+  -p 80:80 \
+  -v /var/log/horizon:/var/log/apache2:rw \
+  -e KEYSTONE_URL='http://192.168.149.129:5000/v3' \
+  alvaroaleman/openstack-horizon
+# KURYR >>>>>>>>>>>>>> TESTEAR!!!
+docker run --name kuryr-libnetwork \
+  --net=host \
+  --cap-add=NET_ADMIN \
+  -e SERVICE_USER=admin \
+  -e SERVICE_PROJECT_NAME=admin \
+  -e SERVICE_PASSWORD=openstack \
+  -e SERVICE_DOMAIN_NAME=Default \
+  -e USER_DOMAIN_NAME=Default \
+  -e IDENTITY_URL=http://127.0.0.1:5000/v3 \
+  -v /var/log/kuryr:/var/log/kuryr \
+  -v /var/run/openvswitch:/var/run/openvswitch \
+  kuryr/libnetwork
+# ETCD >>>>>>>>>>> OKKKK!!
+docker run -d -p 4001:4001 -p 2380:2380 -p 2379:2379 \
+ --name etcd quay.io/coreos/etcd:v2.3.8 \
+ -name etcd0 \
+ -advertise-client-urls http://192.168.50.60:2379,http://192.168.50.60:4001 \
+ -listen-client-urls http://0.0.0.0:2379,http://0.0.0.0:4001 \
+ -initial-advertise-peer-urls http://192.168.50.60:2380 \
+ -listen-peer-urls http://0.0.0.0:2380 \
+ -initial-cluster-token etcd-cluster-1 \
+ -initial-cluster etcd0=http://192.168.50.60:2380 \
+ -initial-cluster-state new

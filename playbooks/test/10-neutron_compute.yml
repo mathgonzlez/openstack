@@ -1,0 +1,87 @@
+---
+- hosts: compute #Change server
+  vars:
+#                        HOST CONFIG
+    - HOST_NAME: huacompute.local.lan
+    - IP_ADDRESS_HOST: 192.168.50.51 #IP INTERFAZ INTERNET
+    - OVERLAY_INTERFACE_IP_ADDRESS: 192.168.50.51 #IP DESIGNADO A OPENSTACK
+    - PROVIDER_INTERFACE_NAME: eth1 #INTERFACE OVERLAY
+#                        DB PASS
+    - KEYSTONE_DBPASS: openstack
+    - GLANCE_DBPASS: openstack
+    - NOVA_DBPASS: openstack
+    - NEUTRON_DBPASS: openstack
+#                        SERVICE CONFIG FILES
+    - NOVA_CONF_FILE: /etc/nova/nova.conf
+    - GLANCE_API_CONF: /etc/glance/glance-api.conf
+    - PLACEMENT_CONFIG_FILE: /etc/placement/placement.conf
+    - NEUTRON_CONF_FILE: /etc/neutron/neutron.conf
+#                        EXTRA CONF FILES
+    - ML2_CONF: /etc/neutron/plugins/ml2/ml2_conf.ini
+    - BRIDGE_CONF: /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+    - LAYER3_CONF: /etc/neutron/l3_agent.ini
+    - DHCP_CONF: /etc/neutron/dhcp_agent.ini
+    - METADATA_CONF: /etc/neutron/metadata_agent.ini
+#                        SERVICE PASSWORD
+    - RABBIT_PASS: openstack
+    - PLACEMENT_PASS: openstack
+    - ADMIN_PASS: openstack
+#                        NOVA SPECIFIC VARS
+    - NOVA_SERVICE_NAME: nova
+    - NOVA_SERVICE_PORT: 8774
+#                        NEUTRON SPECIFIC VARS
+    - NEUTRON_SERVICE_NAME: neutron
+    - NEUTRON_SERVICE_PORT: 9696
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: INSTALL {{ NEUTRON_SERVICE_NAME }} COMPONENTS
+       dnf:
+         name: openstack-neutron-linuxbridge, ebtables, ipset
+         state: present
+     - name: MODIFY NEUTRON_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@lenstack.local.lan'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken www_authenticate_uri http://lenstack.local.lan:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_url http://lenstack.local.lan:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken memcached_servers lenstack.local.lan:11211'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} oslo_concurrency lock_path /var/lib/neutron/tmp'
+     - name: MODIFY BRIDGE_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ BRIDGE_CONF }} linux_bridge physical_interface_mappings provider:{{ PROVIDER_INTERFACE_NAME }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan enable_vxlan true'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan local_ip {{ OVERLAY_INTERFACE_IP_ADDRESS }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan l2_population true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup enable_security_group true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup firewall_driver neutron.agent.linux.iptables_firewall.IptablesFirewallDriver'
+     - name: MODIFY NOVA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_url http://lenstack.local.lan:5000'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron user_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron region_name RegionOne'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron password openstack'
+     - name: RESTART & ENABLE {{ NOVA_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-nova-compute.service'
+         - 'neutron-linuxbridge-agent.service'   

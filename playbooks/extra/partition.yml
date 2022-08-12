@@ -1,0 +1,70 @@
+---
+- hosts: controller #Change server
+#  vars:
+#   - IP_ADDRESS_HOST: 192.168.50.52
+#   - RABBIT_PASS: openstack
+#   - HOST_NAME: controller
+  tasks:
+#-------------------------------------------------------------------------------
+################################################################################
+################################################################################
+#-------------------------------------------------------------------------------
+# PREPARAR GLANCE FOLDER
+    - name: Crear Particion imagenes (Glance)
+      parted:
+        device: /dev/md/RAID0_0
+        number: 1
+        state: present
+        part_end: 150GiB
+    - name: Create a ext4 filesystem on /dev/md/RAID0_0 and check disk blocks
+      filesystem:
+        fstype: ext4
+        dev: /dev/md/RAID0_0
+        force: yes
+    - name: Change file ownership, group and permissions
+      file:
+        path: /glance/
+        state: directory
+        owner: glance
+        group: glance
+    - name: Mount and bind a volume
+      mount:
+        path: /glance
+        src: /dev/md/RAID0_0
+        state: mounted
+        fstype: ext4
+    - name: Change file ownership, group and permissions
+      file:
+        path: /glance/
+        state: directory
+        owner: glance
+        group: glance
+# PREPARAR NOVA FOLDER
+    - name: Crear Particion instances (NOVA)
+      parted:
+        device: /dev/nvme0n1
+        number: 3
+        state: present
+        part_end: 150GiB
+    - name: Create a ext4 filesystem on /dev/nvme0n1 and check disk blocks
+      filesystem:
+        fstype: ext4
+        dev: /dev/nvme0n1
+        force: yes
+    - name: Change file ownership, group and permissions
+      file:
+        path: /nova/instances/
+        state: directory
+        owner: nova
+        group: nova
+    - name: Mount and bind a volume
+      mount:
+        path: /nova/instances/
+        src: /dev/nvme0n1
+        state: mounted
+        fstype: ext4
+    - name: Change file ownership, group and permissions
+      file:
+        path: /nova/instances/
+        owner: nova
+        group: nova

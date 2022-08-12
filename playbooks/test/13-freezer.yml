@@ -1,0 +1,18 @@
+---
+- hosts: dellstack.local.lan #NOMBRE DEL SERVIDOR EN ARCHIVO HOST DE ANSIBLE
+  tasks:
+    # - name: INSTALL '{{ RALLY_SERVICE_NAME }}' COMPONENTS
+    #   dnf:
+    #     name:  python3-devel, git, openssl, openssl-devel, gcc, make, automake
+    #     state: present
+    # - name: CLONE ZUN REPO
+    #   git:
+    #     repo: https://github.com/openstack/freezer.git
+    #     dest: /freezer/
+    #     version: master
+    # - name: INSTALL REQUIREMENTS FOR ZUN
+    #   pip:
+    #     requirements:  /freezer/requirements.txt
+    #     executable: pip-3
+    - name: Return motd to registered var
+      ansible.builtin.command: sudo python3 /freezer/setup.py install  

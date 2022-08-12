@@ -1,0 +1,160 @@
+---
+- hosts: lenstack.local.lan #Change server
+  vars_files:
+    - ./vars/dependencies.yml 
+    - ./vars/keystone.yml  
+    - ./vars/glance.yml
+  no_log: False
+  tasks:
+#########################GLANCE INSTALLATION####################################
+     - name: CREATE DB FOR {{ GLANCE_SERVICE_NAME }}
+       mysql_db:
+         name: "{{ GLANCE_USER_NAME }}"
+         state: present
+         login_host: "{{ HOST_NAME }}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ GLANCE_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: "{{ GLANCE_SERVICE_NAME }}"
+         password: "{{ GLANCE_DB_PASS }}"
+         host: '{{ item }}'
+         priv: '*.*:ALL/glance.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE '"{{ GLANCE_SERVICE_NAME }}"' USER
+       os_user:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ GLANCE_USER_NAME }}"
+         password: "{{ GLANCE_USER_PASS }}"
+         domain: default
+     - name: ADD USER 'glance' TO ADMIN ROLE 
+       openstack.cloud.role_assignment:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ GLANCE_USER_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE GLANCE SERVICE FOR IMAGE
+       os_keystone_service:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ GLANCE_SERVICE_NAME }}"
+         service_type: image
+         description: OpenStack Image Service
+     - name: CREATE A PUBLIC SERVICE FOR GLANCE
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ GLANCE_SERVICE_NAME }}"
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR GLANCE
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ GLANCE_SERVICE_NAME }}"
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR GLANCE
+       openstack.cloud.endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ GLANCE_SERVICE_NAME }}"
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: INSTALL {{ GLANCE_SERVICE_NAME }} & WGET
+       dnf:
+         name: openstack-glance, wget
+         state: present
+     - name: MODIFY GLANCE-API CONFI
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ GLANCE_API_CONF }} database connection mysql+pymysql://{{ GLANCE_USER_NAME }}:{{ GLANCE_DB_PASS }}@{{ HOST_NAME }}/{{ GLANCE_SERVICE_NAME }}'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken project_name service'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken username {{ GLANCE_USER_NAME }}'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken password {{ GLANCE_USER_PASS }}'
+         - 'crudini --set {{ GLANCE_API_CONF }} paste_deploy flavor keystone'
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store stores file,http'
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store default_store file'        
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store filesystem_store_datadir {{ GLANCE_IMAGES_DIR }}'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit auth_url http://{{ HOST_NAME }}:5000'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit auth_type password'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit user_domain_id default'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit username admin'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit system_scope all'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit password openstack'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit endpoint_id 1dd4d74a3e804520b0055bb505997aa4'      
+         - 'crudini --set {{ GLANCE_API_CONF }} oslo_limit region_name RegionOne'      
+         - 'crudini --set {{ GLANCE_API_CONF }} DEFAULT use_keystone_quotas True'      
+     - name: crear archivo para populateDB Image
+       file:
+        path: /home/populate_ImageDB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate_ImageDB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "glance-manage db_sync" glance'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate_ImageDB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB image service
+       shell: ./populate_ImageDB.sh
+       args:
+        chdir: /home/
+     - name: START & ENABLE GLANCE SERVICE
+       systemd:
+         name: openstack-glance-api.service
+         state: started
+         enabled: yes
+
+

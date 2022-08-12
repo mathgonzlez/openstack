@@ -1,0 +1,50 @@
+---
+- hosts: huacompute.local.lan #Change server
+  vars_files:
+    - ./vars/dependencies.yml 
+    - ./vars/cinder.yml  
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: install {{ CINDER_SERVICE_NAME }}
+       dnf:
+         name: lvm2, device-mapper-persistent-data, openstack-cinder, targetcli, python3-keystone, crudini
+         state: present
+     - name: MODIFY CINDER CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ CINDER_CONF_FILE }} database connection mysql+pymysql://cinder:{{ CINDER_DBPASS }}@{{ HOST_NAME }}/cinder'
+         - 'crudini --set {{ CINDER_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@{{ HOST_NAME }}'
+         - 'crudini --set {{ CINDER_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken username {{ CINDER_SERVICE_NAME }}'
+         - 'crudini --set {{ CINDER_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ CINDER_CONF_FILE }} DEFAULT my_ip {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ CINDER_CONF_FILE }} hdd volume_driver cinder.volume.drivers.lvm.LVMVolumeDriver'
+         - 'crudini --set {{ CINDER_CONF_FILE }} hdd volume_group cinder-hdd'
+         - 'crudini --set {{ CINDER_CONF_FILE }} hdd target_protocol iscsi'
+         - 'crudini --set {{ CINDER_CONF_FILE }} hdd target_helper lioadm'
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme volume_backend_name hdd'         
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme volume_driver cinder.volume.drivers.lvm.LVMVolumeDriver'
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme volume_group cinder-nvme'
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme target_protocol iscsi'
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme target_helper lioadm'
+         - 'crudini --set {{ CINDER_CONF_FILE }} nvme volume_backend_name nvme'         
+         - 'crudini --set {{ CINDER_CONF_FILE }} DEFAULT enabled_backends lvm'
+         - 'crudini --set {{ CINDER_CONF_FILE }} DEFAULT glance_api_servers http://{{ HOST_NAME }}:9292'
+         - 'crudini --set {{ CINDER_CONF_FILE }} oslo_concurrency lock_path /var/lib/cinder/tmp'
+     - name: START AND ENABLE CINDER API & SCHEDULER
+       systemd:
+         name: "{{ item }}"
+         state: started
+         enabled: yes
+       with_items:
+         - openstack-cinder-volume.service
+         - target.service

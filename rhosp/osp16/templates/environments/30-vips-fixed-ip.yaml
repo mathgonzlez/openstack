@@ -1,0 +1,12 @@
+parameter_defaults:
+  # Set the IP addresses of the VIPs here.
+  # NOTE: we will eventually move to one VIP per service
+  #
+  # VIP ports
+  ControlFixedIPs: [{'ip_address':'192.168.126.5'}]
+  PublicVirtualFixedIPs: [{'ip_address':'192.168.60.10'}]
+  InternalApiVirtualFixedIPs: [{'ip_address':'192.168.103.9'}]
+  #RedisVirtualFixedIPs: [{'ip_address':'192.168.103.8'}]
+  #OVNDBsVirtualFixedIPs: [{'ip_address':'192.168.103.7'}]
+  StorageVirtualFixedIPs: [{'ip_address':'192.168.101.9'}]
+  StorageMgmtVirtualFixedIPs: [{'ip_address':'192.168.102.9'}]

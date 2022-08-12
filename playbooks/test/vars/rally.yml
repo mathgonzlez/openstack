@@ -1,0 +1,3 @@
+    - RALLY_CONF_FILE: /etc/rally/rally.conf
+    - RALLY_SERVICE_NAME: rally
+    - RALLY_DB_PASS: openstack

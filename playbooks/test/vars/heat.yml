@@ -1,0 +1,6 @@
+    - HEAT_USER_NAME: HEAT
+    - HEAT_USER_PASS: openstack
+    - HEAT_SERVICE_NAME: HEAT
+    - HEAT_DB_PASS: openstack
+    - HEAT_IMAGES_DIR: /HEAT/images
+    - HEAT_API_CONF: /etc/heat/heat.conf

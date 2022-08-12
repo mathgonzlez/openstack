@@ -1,0 +1,735 @@
+---
+- hosts: controller #Change server
+  vars:
+#                        HOST CONFIG
+    - HOST_NAME: controller
+    - IP_ADDRESS_HOST: 192.168.50.19 #IP INTERFAZ INTERNET
+    - OVERLAY_INTERFACE_IP_ADDRESS: 192.168.50.19 #IP DESIGNADO A OPENSTACK
+    - PROVIDER_INTERFACE_NAME: eno2 #INTERFACE OVERLAY
+#                        DB PASS
+    - KEYSTONE_DBPASS: openstack
+    - GLANCE_DBPASS: openstack
+    - NOVA_DBPASS: openstack
+    - NEUTRON_DBPASS: openstack
+#                        SERVICE CONFIG FILES
+    - NOVA_CONF_FILE: /etc/nova/nova.conf
+    - GLANCE_API_CONF: /etc/glance/glance-api.conf
+    - PLACEMENT_CONFIG_FILE: /etc/placement/placement.conf
+    - NEUTRON_CONF_FILE: /etc/neutron/neutron.conf
+#                        EXTRA CONF FILES
+    - ML2_CONF: /etc/neutron/plugins/ml2/ml2_conf.ini
+    - BRIDGE_CONF: /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+    - LAYER3_CONF: /etc/neutron/l3_agent.ini
+    - DHCP_CONF: /etc/neutron/dhcp_agent.ini
+    - METADATA_CONF: /etc/neutron/metadata_agent.ini
+#                        SERVICE PASSWORD
+    - RABBIT_PASS: openstack
+    - PLACEMENT_PASS: openstack
+    - ADMIN_PASS: openstack
+#                        NOVA SPECIFIC VARS
+    - NOVA_SERVICE_NAME: nova
+    - NOVA_SERVICE_PORT: 8774
+#                        NEUTRON SPECIFIC VARS
+    - NEUTRON_SERVICE_NAME: neutron
+    - NEUTRON_SERVICE_PORT: 9696
+  no_log: False
+  tasks:
+#########################GLANCE INSTALLATION####################################
+     - name: CREATE DB FOR GLANCE
+       mysql_db:
+         name: glance
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER 'glance' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: glance
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/glance.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE 'glance' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: glance
+         password: openstack
+         domain: default
+     - name: ADD USER 'glance' TO ADMIN ROLE 
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: glance
+         role: admin
+         project: service
+     - name: CREATE GLANCE SERVICE FOR IMAGE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: glance
+         service_type: image
+         description: OpenStack Image Service
+     - name: CREATE A PUBLIC SERVIDE FOR GLANCE
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: glance
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR GLANCE
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: glance
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR GLANCE
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: glance
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:9292
+         region: RegionOne
+         state: present
+     - name: INSTALL GLANCE & WGET
+       dnf:
+         name: openstack-glance, wget
+         state: present
+     - name: MODIFY GLANCE-API CONFI
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ GLANCE_API_CONF }} database connection mysql+pymysql://glance:openstack@{{ HOST_NAME }}/glance'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken project_name service'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken username glance'
+         - 'crudini --set {{ GLANCE_API_CONF }} keystone_authtoken password openstack'
+         - 'crudini --set {{ GLANCE_API_CONF }} paste_deploy flavor keystone'
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store stores file,http'
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store default_store file'        
+         - 'crudini --set {{ GLANCE_API_CONF }} glance_store filesystem_store_datadir /glance/images'        
+     - name: crear archivo para populateDB Image
+       file:
+        path: /home/populate_ImageDB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate_ImageDB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "glance-manage db_sync" glance'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate_ImageDB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB image service
+       shell: ./populate_ImageDB.sh
+       args:
+        chdir: /home/
+     - name: START & ENABLE GLANCE SERVICE
+       systemd:
+         name: openstack-glance-api.service
+         state: started
+         enabled: yes
+#########################PLACEMENT INSTALLATION#################################
+     - name: CREATE DB FOR PLACEMENT
+       mysql_db:
+         name: placement
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER 'placement' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: placement
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/placement.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: controller #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE PLACEMENT USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: placement
+         password: openstack
+         domain: default
+     - name: ADD PLACEMENT USER TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: placement
+         role: admin
+         project: service
+     - name: CREATE A PLACEMENT SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: placement
+         service_type: placement
+         description: Placement API
+     - name: CREATE A PUBLIC SERVICE FOR PLACEMENT
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR PLACEMENT
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR PLACEMENT
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: placement
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:8778
+         region: RegionOne
+         state: present
+     - name: INSTALL PLACEMENT COMPONENTS
+       dnf:
+         name: openstack-placement-api
+         state: present
+     - name: MODIFY PLACEMENT_CONFIG_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} placement_database connection mysql+pymysql://placement:openstack@{{ HOST_NAME }}/placement'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} api auth_strategy keystone'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000/v3'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken username placement'
+         - 'crudini --set {{ PLACEMENT_CONFIG_FILE }} keystone_authtoken password openstack'
+     - name: crear archivo poblar placement db
+       file:
+        path: /home/populate_placementDB.sh
+        state: touch
+     - name: agregar lineas
+       lineinfile:
+         path: /home/populate_placementDB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "placement-manage db sync" placement'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate_placementDB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB placement
+       shell: ./populate_placementDB.sh
+       args:
+        chdir: /home/
+     - name: RESTART HTTPD SERVICES & ENABLE
+       systemd:
+         name: httpd.service
+         state: restarted
+         enabled: yes
+#########################NOVA INSTALLATION######################################
+     - name: CREATE {{ NOVA_SERVICE_NAME }} DB
+       mysql_db:
+         name:
+           - "{{ NOVA_SERVICE_NAME }}"
+           - nova_api
+           - nova_cell0
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER "{{ NOVA_SERVICE_NAME }}" WITH PASS 'openstack' AND SET FULL R/W PRIVILEGES
+       mysql_user:
+         name: "{{ NOVA_SERVICE_NAME }}"
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/nova.*:ALL/*.*:ALL/nova_api.*:ALL/*.*:ALL/nova_cell0.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: controller #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE "{{ NOVA_SERVICE_NAME }}" USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ NOVA_SERVICE_NAME }}"
+         password: openstack
+         domain: default
+     - name: ADD USER {{ NOVA_SERVICE_NAME }} TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: nova
+         role: admin
+         project: service
+     - name: CREATE {{ NOVA_SERVICE_NAME }} SERVICE FOR COMPUTE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: nova
+         service_type: compute
+         description: OpenStack Compute
+     - name: CREATE A PUBLIC SERVICE FOR {{ NOVA_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: nova
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:8774/v2.1
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR {{ NOVA_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: nova
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:8774/v2.1
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR {{ NOVA_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: nova
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:8774/v2.1
+         region: RegionOne
+         state: present
+     - name: INSTALL {{ NOVA_SERVICE_NAME }} COMPONENTS
+       dnf:
+         name: openstack-nova-api, openstack-nova-conductor, openstack-nova-novncproxy, openstack-nova-scheduler
+         state: present
+     - name: MODIFY NOVA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT enabled_apis osapi_compute,metadata'
+         - 'crudini --set {{ NOVA_CONF_FILE }} api_database connection mysql+pymysql://{{ NOVA_SERVICE_NAME }}:openstack@{{ HOST_NAME }}/nova_api'
+         - 'crudini --set {{ NOVA_CONF_FILE }} database connection mysql+pymysql://{{ NOVA_SERVICE_NAME }}:openstack@{{ HOST_NAME }}/{{ NOVA_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@{{ HOST_NAME }}:5672/'
+         - 'crudini --set {{ NOVA_CONF_FILE }} api auth_strategy keystone'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000/'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000/'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken project_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken user_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken username {{ NOVA_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT my_ip {{ IP_ADDRESS_HOST }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc enabled true'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc server_listen 192.168.50.60'
+         - 'crudini --set {{ NOVA_CONF_FILE }} vnc server_proxyclient_address 192.168.50.60'
+         - 'crudini --set {{ NOVA_CONF_FILE }} glance api_servers http://{{ HOST_NAME }}:9292'
+         - 'crudini --set {{ NOVA_CONF_FILE }} oslo_concurrency lock_path /var/lib/nova/tmp'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement region_name RegionOne'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement project_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement user_domain_name Default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement auth_url http://{{ HOST_NAME }}:5000/v3'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement username placement'
+         - 'crudini --set {{ NOVA_CONF_FILE }} placement password {{ PLACEMENT_PASS }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT allow_resize_to_same_host True'
+         - 'crudini --set {{ NOVA_CONF_FILE }} libvirt virt_type kvm'
+         - 'crudini --set {{ NOVA_CONF_FILE }} libvirt cpu_mode host-passthrough'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT use_neutron true'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT firewall_driver nova.virt.firewall.NoopFirewallDriver'
+         - 'crudini --set {{ NOVA_CONF_FILE }} DEFAULT compute_driver libvirt.LibvirtDriver'
+     - name: crear archivo
+       file:
+        path: /home/populate{{ NOVA_SERVICE_NAME }}DB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate{{ NOVA_SERVICE_NAME }}DB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "nova-manage api_db sync" {{ NOVA_SERVICE_NAME }}'
+         - 'su -s /bin/sh -c "nova-manage cell_v2 map_cell0" {{ NOVA_SERVICE_NAME }}'
+         - 'su -s /bin/sh -c "nova-manage cell_v2 create_cell --name=cell1 --verbose" {{ NOVA_SERVICE_NAME }}'
+         - 'su -s /bin/sh -c "nova-manage db sync" {{ NOVA_SERVICE_NAME }}'
+         - 'su -s /bin/sh -c "nova-manage cell_v2 list_cells" {{ NOVA_SERVICE_NAME }}'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate{{ NOVA_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB service
+       shell: ./populate{{ NOVA_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: RESTART & ENABLE {{ NOVA_SERVICE_NAME }} SERVICE
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-nova-api.service'
+         - 'openstack-nova-scheduler.service'
+         - 'openstack-nova-conductor.service'
+         - 'openstack-nova-novncproxy.service'
+     - name: crear archivo pop nova db service
+       file:
+        path: /home/discover{{ NOVA_SERVICE_NAME }}.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/discover{{ NOVA_SERVICE_NAME }}.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x discover{{ NOVA_SERVICE_NAME }}.sh
+       args:
+        chdir: /home/
+     - name: Populate DB service
+       shell: ./discover{{ NOVA_SERVICE_NAME }}.sh
+       args:
+        chdir: /home/
+     - name: CREATE KVM.CONF FILE
+       ansible.builtin.file:
+         path: /etc/modprobe.d/kvm.conf
+         state: touch
+         owner: root
+         group: root
+     - name: ENABLE NESTED VIRTUALIZATION
+       lineinfile:
+         path: /etc/modprobe.d/kvm.conf
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'options kvm_intel nested=1'
+#########################NEUTRON INSTALLATION###################################
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} DB
+       mysql_db:
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         state: present
+         login_host: controller #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ NEUTRON_SERVICE_NAME }}' WITH PASSWORD 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/{{ NEUTRON_SERVICE_NAME }}.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: controller #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         password: openstack
+         domain: default
+     - name: ADD USER {{ NEUTRON_SERVICE_NAME }} TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ NEUTRON_SERVICE_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} SERVICE FOR NETWORK
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         service_type: network
+         description: OpenStack Image Service
+     - name: CREATE A PUBLIC SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: INSTALL {{ NEUTRON_SERVICE_NAME }} COMPONENTS
+       dnf:
+         name: openstack-neutron, openstack-neutron-ml2, openstack-neutron-linuxbridge, ebtables
+         state: present
+     - name: MODIFY NEUTRON_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} database connection mysql+pymysql://neutron:{{ NEUTRON_DBPASS }}@controller/neutron'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT core_plugin ml2'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT service_plugins router'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT allow_overlapping_ips true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@controller'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken www_authenticate_uri http://controller:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_url http://controller:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken memcached_servers controller:11211'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT notify_nova_on_port_status_changes true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT notify_nova_on_port_data_changes true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova auth_url http://controller:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova auth_type password'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova project_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova user_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova region_name RegionOne'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova project_name service'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova username nova'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova password openstack'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} oslo_concurrency lock_path /var/lib/neutron/tmp'
+     - name: MODIFY ML2_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ ML2_CONF }} ml2 type_drivers flat,vlan,vxlan'
+         - 'crudini --set {{ ML2_CONF }} ml2 tenant_network_types vxlan'
+         - 'crudini --set {{ ML2_CONF }} ml2 mechanism_drivers linuxbridge,l2population'
+         - 'crudini --set {{ ML2_CONF }} ml2 extension_drivers port_security'
+         - 'crudini --set {{ ML2_CONF }} ml2_type_flat flat_networks provider'
+         - 'crudini --set {{ ML2_CONF }} ml2_type_vxlan vni_ranges 1:1000'
+         - 'crudini --set {{ ML2_CONF }} securitygroup enable_ipset true'
+     - name: MODIFY BRIDGE_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ BRIDGE_CONF }} linux_bridge physical_interface_mappings provider:{{ PROVIDER_INTERFACE_NAME }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan enable_vxlan true'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan local_ip {{ OVERLAY_INTERFACE_IP_ADDRESS }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan l2_population true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup enable_security_group true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup firewall_driver neutron.agent.linux.iptables_firewall.IptablesFirewallDriver'
+         - 'crudini --set {{ BRIDGE_CONF }} ml2_type_flat flat_networks provider'
+         - 'crudini --set {{ BRIDGE_CONF }} ml2_type_vxlan vni_ranges 1:1000'
+     - name: MODIFY LAYER3_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ LAYER3_CONF }} DEFAULT interface_driver linuxbridge'
+     - name: MODIFY DHCP_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT interface_driver linuxbridge'
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT dhcp_driver neutron.agent.linux.dhcp.Dnsmasq'
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT enable_isolated_metadata true'
+     - name: MODIFY METADATA_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ METADATA_CONF }} DEFAULT nova_metadata_host controller'
+         - 'crudini --set {{ METADATA_CONF }} DEFAULT metadata_proxy_shared_secret openstack'
+     - name: MODIFY NOVA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_url http://controller:5000'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron user_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron region_name RegionOne'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron password {{ NEUTRON_DBPASS }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron service_metadata_proxy true'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron metadata_proxy_shared_secret openstack'
+     - name: crear archivo
+       file:
+        path: /home/populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'ln -s /etc/neutron/plugins/ml2/ml2_conf.ini /etc/neutron/plugin.ini'
+         - 'su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" {{ NEUTRON_SERVICE_NAME }}'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB service
+       shell: ./populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: RESTART NEUTRON SERVICES
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'neutron-server.service'
+         - 'neutron-linuxbridge-agent.service'
+         - 'neutron-dhcp-agent.service'
+         - 'neutron-metadata-agent.service'
+         - 'neutron-l3-agent.service'

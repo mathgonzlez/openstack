@@ -1,0 +1,45 @@
+/etc/gnocchi/gnocchi.conf
+
+[DEFAULT]
+log_dir = /var/log/gnocchi
+coordination_url = redis://REDIS_IP:6379
+
+[api]
+auth_mode = keystone
+
+[database]
+backend = sqlalchemy
+
+[indexer]
+url = mysql+pymysql://gnocchi:openstack@CONTROLLER_IP/gnocchi
+
+[storage]
+driver = redis
+redis_url = redis://REDIS_IP:6379
+matric_processing_delay = 60
+metric_report_delay = 10
+
+[incoming]
+driver = redis
+redis_url = redis://REDIS_IP:6379
+
+[keystone_authtoken]
+www_authenticate_uri = http://CONTROLLER_IP:5000
+auth_url = http://CONTROLLER_IP:5000
+memcached_servers = CONTROLLER_IP:11211
+auth_type = password
+project_domain_name = default
+user_domain_name = default
+project_name = service
+username = gnocchi
+password = openstack
+service_token_roles_required = true
+
+
+
+
+/etc/redis/redis.conf
+
+bind 127.0.0.1 REDIS_IP
+daemonize yes
+protected-mode no

@@ -1,0 +1,225 @@
+---
+- hosts: lenstack.local.lan #Change server
+  vars_files:
+    - ./vars/dependencies.yml 
+    - ./vars/keystone.yml  
+    - ./vars/placement.yml
+    - ./vars/nova.yml
+    - ./vars/neutron.yml
+  no_log: False
+  tasks:
+#########################NEUTRON INSTALLATION###################################
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} DB
+       mysql_db:
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         state: present
+         login_host: "{{ HOST_NAME }}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ NEUTRON_SERVICE_NAME }}' WITH PASSWORD 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         password: openstack
+         host: '{{ item }}'
+         priv: '*.*:ALL/{{ NEUTRON_SERVICE_NAME }}.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} USER
+       os_user:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         password: openstack
+         domain: default
+     - name: ADD USER {{ NEUTRON_SERVICE_NAME }} TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ NEUTRON_SERVICE_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE {{ NEUTRON_SERVICE_NAME }} SERVICE FOR NETWORK
+       os_keystone_service:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ NEUTRON_SERVICE_NAME }}"
+         service_type: network
+         description: OpenStack Image Service
+     - name: CREATE A PUBLIC SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR {{ NEUTRON_SERVICE_NAME }}
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://{{ HOST_NAME }}:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: "{{ NEUTRON_SERVICE_NAME }}"
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:{{ NEUTRON_SERVICE_PORT }}
+         region: RegionOne
+         state: present
+     - name: INSTALL {{ NEUTRON_SERVICE_NAME }} COMPONENTS
+       dnf:
+         name: openstack-neutron, openstack-neutron-ml2, openstack-neutron-linuxbridge, ebtables
+         state: present
+     - name: MODIFY NEUTRON_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} database connection mysql+pymysql://neutron:{{ NEUTRON_DBPASS }}@{{ HOST_NAME }}/neutron'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT core_plugin ml2'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT service_plugins router'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT allow_overlapping_ips true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT transport_url rabbit://openstack:{{ RABBIT_PASS }}@{{ HOST_NAME }}'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} keystone_authtoken password openstack'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT notify_nova_on_port_status_changes true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} DEFAULT notify_nova_on_port_data_changes true'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova auth_type password'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova project_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova user_domain_name default'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova region_name RegionOne'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova project_name service'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova username nova'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} nova password openstack'
+         - 'crudini --set {{ NEUTRON_CONF_FILE }} oslo_concurrency lock_path /var/lib/neutron/tmp'
+     - name: MODIFY ML2_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ ML2_CONF }} ml2 type_drivers flat,vlan,vxlan'
+         - 'crudini --set {{ ML2_CONF }} ml2 tenant_network_types vxlan'
+         - 'crudini --set {{ ML2_CONF }} ml2 mechanism_drivers linuxbridge,l2population'
+         - 'crudini --set {{ ML2_CONF }} ml2 extension_drivers port_security'
+         - 'crudini --set {{ ML2_CONF }} ml2_type_flat flat_networks provider'
+         - 'crudini --set {{ ML2_CONF }} ml2_type_vxlan vni_ranges 1:1000'
+         - 'crudini --set {{ ML2_CONF }} securitygroup enable_ipset true'
+     - name: MODIFY BRIDGE_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ BRIDGE_CONF }} linux_bridge physical_interface_mappings provider:{{ PROVIDER_INTERFACE_NAME }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan enable_vxlan true'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan local_ip {{ OVERLAY_INTERFACE_IP_ADDRESS }}'
+         - 'crudini --set {{ BRIDGE_CONF }} vxlan l2_population true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup enable_security_group true'
+         - 'crudini --set {{ BRIDGE_CONF }} securitygroup firewall_driver neutron.agent.linux.iptables_firewall.IptablesFirewallDriver'
+         - 'crudini --set {{ BRIDGE_CONF }} ml2_type_flat flat_networks provider'
+         - 'crudini --set {{ BRIDGE_CONF }} ml2_type_vxlan vni_ranges 1:1000'
+     - name: MODIFY LAYER3_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ LAYER3_CONF }} DEFAULT interface_driver linuxbridge'
+     - name: MODIFY DHCP_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT interface_driver linuxbridge'
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT dhcp_driver neutron.agent.linux.dhcp.Dnsmasq'
+         - 'crudini --set {{ DHCP_CONF }} DEFAULT enable_isolated_metadata true'
+     - name: MODIFY METADATA_CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ METADATA_CONF }} DEFAULT nova_metadata_host {{ HOST_NAME }}'
+         - 'crudini --set {{ METADATA_CONF }} DEFAULT metadata_proxy_shared_secret openstack'
+     - name: MODIFY NOVA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron auth_type password'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron user_domain_name default'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron region_name RegionOne'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron project_name service'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron username {{ NEUTRON_SERVICE_NAME }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron password {{ NEUTRON_DBPASS }}'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron service_metadata_proxy true'
+         - 'crudini --set {{ NOVA_CONF_FILE }} neutron metadata_proxy_shared_secret openstack'
+     - name: crear archivo
+       file:
+        path: /home/populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+        state: touch
+     - name: agregar linea
+       lineinfile:
+         path: /home/populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'ln -s /etc/neutron/plugins/ml2/ml2_conf.ini /etc/neutron/plugin.ini'
+         - 'su -s /bin/sh -c "neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/plugins/ml2/ml2_conf.ini upgrade head" {{ NEUTRON_SERVICE_NAME }}'
+         - 'echo "LISTO"'
+     - name: Hacer ejecutable el SH
+       shell: chmod +x populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: Populate DB service
+       shell: ./populate{{ NEUTRON_SERVICE_NAME }}DB.sh
+       args:
+        chdir: /home/
+     - name: RESTART NEUTRON SERVICES
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'neutron-server.service'
+         - 'neutron-linuxbridge-agent.service'
+         - 'neutron-dhcp-agent.service'
+         - 'neutron-metadata-agent.service'
+         - 'neutron-l3-agent.service'

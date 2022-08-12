@@ -1,0 +1,22 @@
+---
+- hosts: controller #Change server
+  vars:
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+  no_log: False
+  tasks:
+#################################ALPINE
+    - name: tu vieja
+      openstack.cloud.volume_snapshot:
+        auth:
+          auth_url: http://controller:5000
+          username: admin
+          password: openstack
+          project_name: admin
+          domain_name: Default
+        display_name: asd_snapshot
+        state: present
+        volume: 823c7211-bb4d-430a-9216-b496407af15e
+        force: yes
+      register: asd_snapshot

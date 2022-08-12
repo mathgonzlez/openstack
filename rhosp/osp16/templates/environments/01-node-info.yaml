@@ -1,0 +1,23 @@
+parameter_defaults:
+#CONTROLLER NODES
+  OvercloudControllerFlavor: control
+  ControllerCount: 1
+#COMPUTE NODES
+  OvercloudComputeFlavor: baremetal
+  ComputeCount: 0
+#CEPH NODES
+  OvercloudCephStorageFlavor: ceph-storage
+  OvercloudCephStorage: 0
+#CONFIGS
+#  CinderEnableIscsiBackend: false
+#  CephDefaultPoolSize: 1
+#  CephAnsibleDisksConfig:
+#    devices:
+#      - /dev/sdb
+#      - /dev/sdc
+#    osd_scenario: lvm
+#    osd_objectstore: bluestore
+#    health_osd_check_delay: 40
+#    health_osd_check_retries: 30
+#    health_mon_check_delay: 20
+#    health_mon_check_retries: 10

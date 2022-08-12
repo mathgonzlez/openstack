@@ -1,0 +1,2 @@
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack

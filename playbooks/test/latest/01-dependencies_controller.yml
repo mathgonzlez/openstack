@@ -1,0 +1,156 @@
+---
+- hosts: controller #NOMBRE DEL SERVIDOR EN ARCHIVO HOST DE ANSIBLE
+  vars:
+   - IP_ADDRESS_HOST: 192.168.50.19
+   - RABBIT_PASS: openstack #MODIFIQUE PASS PARA RABBIT
+   - HOST_NAME: controller #(preferentemente dejar en controller)
+#RHEL_Subscription
+   - RHEL_USER: mathgonzlez #MODIFIQUE DATOS DE USUARIO
+   - RHEL_PASS: 35253760m #MODIFIQUE PASSWORD 
+#-------------------------------------------------------------------------------
+  tasks:
+#Server Configuration
+    - name: Register cluster in Rhel & attach subscription
+      redhat_subscription:
+        state: present
+        username: '{{ RHEL_USER }}'
+        password: '{{ RHEL_PASS }}'
+        auto_attach: true
+    - name: ADD extra RHEL8 repos
+      rhsm_repository:
+        name: "{{ item }}"
+        state: enabled
+      with_items:
+        - 'rhel-8-for-x86_64-appstream-rpms'
+        - 'rhel-8-for-x86_64-supplementary-rpms'
+        - 'codeready-builder-for-rhel-8-x86_64-rpms'
+    # - name: Install RDO release
+    #   dnf:
+    #     name: https://www.rdoproject.org/repos/rdo-release.rpm
+    #     state: present
+    #     disable_gpg_check: True
+    - name: Add docker repo
+      ansible.builtin.shell:
+        cmd: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo       
+    - name: Update Rhel to latest version
+      dnf: name=* state=latest
+    - name: Install Openstack Dependencies & extras
+      dnf:
+        name: python3-openstackclient, openstack-selinux, cockpit, cockpit-storaged, network-scripts, vim, docker-ce
+        state: present
+    - name: Modify environment language
+      lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - 'LANG=en_US.utf-8'
+        - 'LC_ALL=en_US.utf-8'
+    - name: Disable SELinux
+      selinux:
+        state: disabled
+    - name: Modify host file
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - '{{ IP_ADDRESS_HOST }} {{ HOST_NAME }}'
+    - name: Disable firewalld
+      systemd:
+        name: firewalld.service
+        state: stopped
+        enabled: no
+    - name: Enable Docker
+      systemd:
+        name: docker.service
+        state: started
+        enabled: yes
+    - name: Install docker python package
+      pip:
+        name: docker        
+        executable: pip-3
+#Mariadb Installation
+    - name: install MySQL
+      dnf:
+        name: mariadb, mariadb-server, python3-PyMySQL
+        state: present
+    - name: Create SQL config file
+      file:
+        path: /etc/my.cnf.d/openstack.cnf
+        state: touch
+    - name: Edit config file
+      lineinfile:
+        path: /etc/my.cnf.d/openstack.cnf
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - '[mysqld]'
+        - 'bind-address = {{ IP_ADDRESS_HOST }}'
+        - ''
+        - 'default-storage-engine = innodb'
+        - 'innodb_file_per_table = on'
+        - 'max_connections = 4096'
+        - 'collation-server = utf8_general_ci'
+        - 'character-set-server = utf8'
+    - name: Start and enable Mariadb
+      systemd:
+        name: mariadb.service
+        state: started
+        enabled: yes
+#Rabbitmq container start
+    - name: start rabbitmq container
+      docker_container:
+        name: rabbitmq
+        hostname: controller
+        state: started
+        restart: yes
+        restart_policy: always
+        image: rabbitmq:3-management
+        ports:
+         - "5672:5672"
+         - "15672:15672"
+#Memcached container start
+    - name: memcached
+      docker_container:
+        name: memcached
+        state: started
+        restart: yes
+        restart_policy: always
+        image: memcached:1.6.10
+        ports:
+         - "11211:11211"
+#Etcd Installation
+    - name: install etcd
+      dnf:
+        name: etcd
+        state: present
+    - name: Add to etcd conf file
+      lineinfile:
+        path: /etc/etcd/etcd.conf
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - 'ETCD_LISTEN_PEER_URLS="http://{{ IP_ADDRESS_HOST }}:2380"'
+        - 'ETCD_INITIAL_ADVERTISE_PEER_URLS="http://{{ IP_ADDRESS_HOST }}:2380"'
+        - 'ETCD_INITIAL_CLUSTER="{{ HOST_NAME }}=http://{{ IP_ADDRESS_HOST }}:2380"'
+        - 'ETCD_INITIAL_CLUSTER_TOKEN="etcd-cluster-01"'
+        - 'ETCD_INITIAL_CLUSTER_STATE="new"'
+    - name: Edit etcd conf
+      lineinfile:
+        path: /etc/etcd/etcd.conf
+        regexp: '{{item.From}}'
+        line: '{{item.To}}'
+      with_items:
+        - { From: 'ETCD_NAME="default"', To: 'ETCD_NAME="{{ HOST_NAME }}"'}
+        - { From: 'ETCD_ADVERTISE_CLIENT_URLS="http://localhost:2379"', To: 'ETCD_ADVERTISE_CLIENT_URLS="http://{{ IP_ADDRESS_HOST }}:2379"'}
+        - { From: 'ETCD_LISTEN_CLIENT_URLS="http://localhost:2379"', To: 'ETCD_LISTEN_CLIENT_URLS="http://{{ IP_ADDRESS_HOST }}:2379"'}
+#-------------------------------------------------------------------------------
+    - name: RESTART & ENABLE COCKPIT and ETCD
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      with_items:
+        - 'cockpit.socket'
+        - 'etcd.service'

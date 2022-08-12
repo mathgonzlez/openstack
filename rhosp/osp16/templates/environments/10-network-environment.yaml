@@ -1,0 +1,122 @@
+#This file is an example of an environment file for defining the isolated
+#networks and related parameters.
+resource_registry:
+  # Network Interface templates to use (these files must exist). You can
+  # override these by including one of the net-*.yaml environment files,
+  # such as net-bond-with-vlans.yaml, or modifying the list here.
+  # Port assignments for the Controller
+  OS::TripleO::Controller::Net::SoftwareConfig:
+    ../multiple-nics/controller.yaml
+  # Port assignments for the Compute
+  OS::TripleO::Compute::Net::SoftwareConfig:
+    ../multiple-nics/compute.yaml
+  # Port assignments for the BlockStorage
+  OS::TripleO::BlockStorage::Net::SoftwareConfig:
+    ../multiple-nics/cinder-storage.yaml
+  # Port assignments for the ObjectStorage
+  OS::TripleO::ObjectStorage::Net::SoftwareConfig:
+    ../multiple-nics/swift-storage.yaml
+  # Port assignments for the CephStorage
+  OS::TripleO::CephStorage::Net::SoftwareConfig:
+    ../multiple-nics/ceph-storage.yaml
+
+parameter_defaults:
+  # This section is where deployment-specific configuration is done
+  #
+  # NOTE: (Since Rocky)
+  # ControlPlaneSubnetCidr: It is no longer a requirement to provide the
+  #                         parameter. The attribute is resolved from the
+  #                         ctlplane subnet(s).
+  # ControlPlaneDefaultRoute: It is no longer a requirement to provide this
+  #                           parameter. The attribute is resolved from the
+  #                           ctlplane subnet(s).
+  # EC2MetadataIp: It is no longer a requirement to provide this parameter. The
+  #                attribute is resolved from the ctlplane subnet(s).
+  #
+  ############################################## Customize the IP subnet to match the local environment
+  StorageNetCidr: '192.168.101.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  StorageAllocationPools: [{'start': '192.168.101.4', 'end': '192.168.101.250'}]
+  # Customize the VLAN ID to match the local environment
+  StorageNetworkVlanID: 101
+  ############################################## Customize the IP subnet to match the local environment
+  StorageMgmtNetCidr: '192.168.102.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  StorageMgmtAllocationPools: [{'start': '192.168.102.4', 'end': '192.168.102.250'}]
+  # Customize the VLAN ID to match the local environment
+  StorageMgmtNetworkVlanID: 102
+  ############################################## Customize the IP subnet to match the local environment
+  InternalApiNetCidr: '192.168.103.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  InternalApiAllocationPools: [{'start': '192.168.103.4', 'end': '192.168.103.250'}]
+  # Customize the VLAN ID to match the local environment
+  InternalApiNetworkVlanID: 103
+  ############################################## Customize the IP subnet to match the local environment
+  TenantNetCidr: '192.168.104.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  TenantAllocationPools: [{'start': '192.168.104.4', 'end': '192.168.104.250'}]
+  # Customize the VLAN ID to match the local environment
+  TenantNetworkVlanID: 104
+  # MTU of the underlying physical network. Neutron uses this value to
+  # calculate MTU for all virtual network components. For flat and VLAN
+  # networks, neutron uses this value without modification. For overlay
+  # networks such as VXLAN, neutron automatically subtracts the overlay
+  # protocol overhead from this value.
+  TenantNetPhysnetMtu: 1500
+  ############################################## Customize the IP subnet to match the local environment
+  ExternalNetCidr: '192.168.60.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  # Leave room if the external network is also used for floating IPs
+  ExternalAllocationPools: [{'start': '192.168.60.10', 'end': '192.168.60.250'}]
+  # Gateway router for routable networks
+  ExternalInterfaceDefaultRoute: '192.168.60.1'
+  # Customize the VLAN ID to match the local environment
+  ExternalNetworkVlanID: 105
+  ############################################## Customize the IP subnet to match the local environment
+  ManagementNetCidr: '10.0.1.0/24'
+  # Customize the IP range to use for static IPs and VIPs
+  ManagementAllocationPools: [{'start': '10.0.1.4', 'end': '10.0.1.250'}]
+  # Gateway router for routable networks
+  ManagementInterfaceDefaultRoute: '10.0.1.1'
+  # Customize the VLAN ID to match the local environment
+  ManagementNetworkVlanID: 60
+  ############################################## Define the DNS servers (maximum 2) for the overcloud nodes
+  # When the list is not set or empty, the nameservers on the ctlplane subnets will be used.
+  # (ctlplane subnets nameservers are controlled by the ``undercloud_nameservers`` option in ``undercloud.conf``)
+  DnsServers: ['192.168.50.51']
+  # List of Neutron network types for tenant networks (will be used in order)
+  NeutronNetworkType: 'geneve,vlan,flat'
+  # Neutron VLAN ranges per network, for example 'datacentre:1:499,tenant:500:1000':
+  NeutronNetworkVLANRanges: 'datacentre:1:1000'
+  # Customize bonding options, e.g. "mode=4 lacp_rate=1 updelay=1000 miimon=100"
+  # for Linux bonds w/LACP, or "bond_mode=active-backup" for OVS active/backup.
+  BondInterfaceOvsOptions: "bond_mode=active-backup"
+#################################################################################################
+#                                                                                               #
+#                                     EXTRA EXTRA TOD APESTA                                    #
+#                                                                                               #
+#################################################################################################
+  # To refresh the overcloud nodes network configuration at every Overcloud Update
+  NetworkDeploymentActions: ['CREATE','UPDATE']
+  # List of Service plugins enabled in Neutron
+  NeutronServicePlugins: 'qos,ovn-router,trunk,segments,port_forwarding,log'
+  # List of plugins enabled in Neutron
+  NeutronPluginExtensions: "qos,port_security,dns"
+  # Configure DNS
+  NeutronDnsDomain: "local.lan"
+  # Default global MTU for the platform
+  # In ExtraConfig specific override for overlay
+  NeutronGlobalPhysnetMtu: 9000
+  #Compute RAM reserved
+  NovaReservedHostMemory: 2048
+  #Nova Filters
+  NovaSchedulerDefaultFilters: ['ComputeFilter','ComputeCapabilitiesFilter','AvailabilityZoneFilter','ImagePropertiesFilter','NUMATopologyFilter','PciPassthroughFilter','AggregateInstanceExtraSpecsFilter','ServerGroupAntiAffinityFilter','ServerGroupAffinityFilter']
+  # From Rocky live migration with NumaTopologyFilter disabled by default
+  # https://bugs.launchpad.net/nova/+bug/1289064
+  NovaEnableNUMALiveMigration: true
+  # Array of Physical network and custom MTU size
+  # Ensure MTU is 1500 Bytes for external floating IP network
+  # Datacentre and Niantic_pool both at 9000Byte
+  neutron::plugins::ml2::physical_network_mtus: ['datacentre:9000']
+  # Ensure Overlay GENEVE has 8942 Byte
+  neutron::plugins::ml2::path_mtu: 8942

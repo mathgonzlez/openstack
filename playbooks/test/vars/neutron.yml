@@ -1,0 +1,11 @@
+    - OVERLAY_INTERFACE_IP_ADDRESS: 192.168.50.50 #IP DESIGNADO A OPENSTACK
+    - PROVIDER_INTERFACE_NAME: eth1 #INTERFACE OVERLAY
+    - NEUTRON_DBPASS: openstack
+    - NEUTRON_CONF_FILE: /etc/neutron/neutron.conf
+    - ML2_CONF: /etc/neutron/plugins/ml2/ml2_conf.ini
+    - BRIDGE_CONF: /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+    - LAYER3_CONF: /etc/neutron/l3_agent.ini
+    - DHCP_CONF: /etc/neutron/dhcp_agent.ini
+    - METADATA_CONF: /etc/neutron/metadata_agent.ini
+    - NEUTRON_SERVICE_NAME: neutron
+    - NEUTRON_SERVICE_PORT: 9696

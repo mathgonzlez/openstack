@@ -1,0 +1,68 @@
+---
+- hosts: compute #NOMBRE DEL SERVIDOR EN ARCHIVO HOST DE ANSIBLE
+  vars_files:
+    - ./vars/dependencies.yml
+  tasks:
+#-------------------------------------------------------------------------------
+    - name: Register cluster in Rhel & attach subscription
+      redhat_subscription:
+        state: present
+        username: '{{ RHEL_USER }}'
+        password: '{{ RHEL_PASS }}'
+        auto_attach: true
+    - name: ADD extra RHEL8 repos
+      rhsm_repository:
+        name: "{{ item }}"
+        state: enabled
+      with_items:
+        - 'rhel-8-for-x86_64-appstream-rpms'
+        - 'rhel-8-for-x86_64-supplementary-rpms'
+        - 'codeready-builder-for-rhel-8-x86_64-rpms'
+    - name: Install RDO release
+      dnf:
+        name: https://www.rdoproject.org/repos/rdo-release.el8.rpm
+        state: present
+        disable_gpg_check: True
+    - name: Add docker repo
+      ansible.builtin.shell:
+        cmd: dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo       
+    - name: Update Rhel to latest version
+      dnf: name=* state=latest
+    - name: Install Openstack Dependencies & extras
+      dnf:
+        name: python3-openstackclient, openstack-selinux, cockpit, cockpit-storaged, @virt, crudini, docker-ce
+        state: present
+    - name: Enable Docker
+      systemd:
+        name: docker.service
+        state: started
+        enabled: yes
+    - name: Install docker python package
+      pip:
+        name: docker        
+        executable: pip-3
+    - name: Modify environment language
+      lineinfile:
+        path: /etc/environment
+        line: "{{ item }}"
+        state: present
+      with_items:
+        - 'LANG=en_US.utf-8'
+        - 'LC_ALL=en_US.utf-8'
+    - name: Disable SELinux
+      selinux:
+        state: disabled
+#-------------------------------------------------------------------------------
+    - name: Disable firewalld
+      systemd:
+        name: firewalld.service
+        state: stopped
+        enabled: no
+    - name: RESTART & ENABLE COCKPIT, ETC, FIREWALLD SERVICES
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+        enabled: yes
+      with_items:
+        - 'cockpit.socket'
+#-------------------------------------------------------------------------------

@@ -1,0 +1,181 @@
+---
+- hosts: controller #Change server
+  vars:
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: Create Keystone db
+       mysql_db:
+         name: keystone
+         state: present
+         login_host: "{{ HOST_NAME }}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: Create database user with name 'keystone' and password '{{ KEYSTONE_DBPASS }}' with all database privileges
+       mysql_user:
+         name: keystone
+         password: "{{ KEYSTONE_DBPASS }}"
+         host: '{{ item }}'
+         priv: '*.*:ALL/keystone.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: controller #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: install KEYSTONE, httpd, mod_wsgi & crudini
+       dnf:
+         name: openstack-keystone, httpd, python3-mod_wsgi, crudini
+         state: present
+     - name: Modify Keystone conf
+       lineinfile:
+         path: /etc/keystone/keystone.conf
+         regexp: '{{item.From}}'
+         line: '{{item.To}}'
+       with_items:
+         - { From: '#connection = <None>', To: 'connection = mysql+pymysql://keystone:{{ KEYSTONE_DBPASS }}@controller/keystone'}
+     - name: Agregar a keystone conf
+       shell:
+         cmd: crudini --set /etc/keystone/keystone.conf token provider fernet
+     - name: Create file for populate keystone db
+       file:
+        path: /home/populateDB.sh
+        state: touch
+     - name: add commands
+       lineinfile:
+         path: /home/populateDB.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "keystone-manage db_sync" keystone'
+         - 'echo "LISTO"'
+     - name: chmod the file
+       shell: chmod +x populateDB.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./populateDB.sh
+       args:
+        chdir: /home/
+     - name: Export Keyston vars
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - keystone-manage fernet_setup --keystone-user keystone --keystone-group keystone
+         - keystone-manage credential_setup --keystone-user keystone --keystone-group keystone
+     - name: Create bootstrap file
+       file:
+        path: /home/bootstrapKeystone.sh
+        state: touch
+     - name: Modify
+       lineinfile:
+         path: /home/bootstrapKeystone.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'keystone-manage bootstrap --bootstrap-password openstack   --bootstrap-admin-url http://controller:5000/v3/   --bootstrap-internal-url http://controller:5000/v3/   --bootstrap-public-url http://controller:5000/v3/   --bootstrap-region-id RegionOne'
+         - 'echo "LISTO"'
+     - name: chmod
+       shell: chmod +x bootstrapKeystone.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./bootstrapKeystone.sh
+       args:
+        chdir: /home/
+     - name: Add servername to httpd.conf
+       lineinfile:
+         path: /etc/httpd/conf/httpd.conf
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'ServerName controller'
+     - name: Create file
+       file:
+        path: /home/link_httpd.sh
+        state: touch
+     - name: Modify
+       lineinfile:
+         path: /home/link_httpd.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'ln -s /usr/share/keystone/wsgi-keystone.conf /etc/httpd/conf.d/'
+         - 'echo "LISTO"'
+     - name: Chmod
+       shell: chmod +x link_httpd.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./link_httpd.sh
+       args:
+        chdir: /home/
+     - name: Start & enable httpd
+       systemd:
+         name: httpd.service
+         state: started
+         enabled: yes
+#Create admin RC script
+     - name: create file
+       file:
+        path: /home/admin-openrc.sh
+        state: touch
+     - name: Add to file
+       lineinfile:
+         path: /home/admin-openrc.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'export OS_PROJECT_DOMAIN_NAME=Default'
+         - 'export OS_USER_DOMAIN_NAME=Default'
+         - 'export OS_PROJECT_NAME=admin'
+         - 'export OS_USERNAME=admin'
+         - 'export OS_PASSWORD={{ ADMIN_PASS }}'
+         - 'export OS_AUTH_URL=http://controller:5000/v3'
+         - 'export OS_IDENTITY_API_VERSION=3'
+         - 'export OS_IMAGE_API_VERSION=2'
+         - 'echo "Ready"'
+#Create Keystone doman, project, user and roles.
+     - name: Create file
+       file:
+        path: /home/run-keystone.sh
+        state: touch
+     - name: Add to file
+       lineinfile:
+         path: /home/run-keystone.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'source /home/admin-openrc.sh'
+         - 'openstack domain create --description "Domain Example" example'
+         - 'openstack project create --domain default --description "Service Project" service'
+         - 'openstack project create --domain default --description "Demo Project" myproject'
+         - 'openstack user create --domain default --password {{ ADMIN_PASS }} myuser'
+         - 'openstack role create myrole'
+         - 'openstack role add --project myproject --user myuser myrole'
+     - name: Chmod
+       shell: chmod +x run-keystone.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./run-keystone.sh
+       args:
+        chdir: /home/
+     - name: ADD KEYSTONE VARIABLES TO BASH
+       lineinfile:
+         path: ~/.bash_profile
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'export OS_PROJECT_DOMAIN_NAME=Default'
+         - 'export OS_USER_DOMAIN_NAME=Default'
+         - 'export OS_PROJECT_NAME=admin'
+         - 'export OS_USERNAME=admin'
+         - 'export OS_PASSWORD={{ ADMIN_PASS }}'
+         - 'export OS_AUTH_URL=http://controller:5000/v3'
+         - 'export OS_IDENTITY_API_VERSION=3'
+         - 'export OS_IMAGE_API_VERSION=2'
+         - 'echo "Ready"'

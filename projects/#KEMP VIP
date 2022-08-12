@@ -1,0 +1,7 @@
+#KEMP VIP
+openstack port create --network external kemp_vip --fixed-ip ip-address=192.168.50.182
+
+KEMP_MASTER_PORT=$(openstack port list | grep '192.168.50.53' | awk '{ print $2 }') && echo $KEMP_MASTER_PORT
+
+
+openstack port set --allowed-address ip-address=192.168.50.182 $KEMP_MASTER_PORT

@@ -1,0 +1,14 @@
+openstack network qos policy create bw-limiter
+
+
+openstack network qos rule create --type bandwidth-limit --max-kbps 1000 --max-burst-kbits 1000 --ingress bw-limiter
+
+openstack port set --qos-policy bw-limiter 3d4928ef-59ac-4273-82f9-04065e49b974
+
+
+openstack port unset --qos-policy 3d4928ef-59ac-4273-82f9-04065e49b974
+
+
+
+
+openstack network qos policy list

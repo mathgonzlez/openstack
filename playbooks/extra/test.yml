@@ -1,0 +1,175 @@
+- hosts: controller #Change server
+  vars:
+#                        HOST CONFIG
+    - HOST_NAME: controller
+    - IP_ADDRESS_HOST: 192.168.50.60
+    - OVERLAY_INTERFACE_IP_ADDRESS: 192.168.50.61
+    - PROVIDER_INTERFACE_NAME: team
+    - RABBIT_PASS: openstack
+# ZUN
+    - ZUN_SERVICE_NAME: zun
+    - ZUN_DB_PASS: openstack
+    - ZUN_USER_PASS: openstack
+    - ZUN_CONF_FILE: /etc/zun/zun.conf
+  no_log: False
+  tasks:
+#
+#
+#####
+     - name: CREATE DB FOR '{{ ZUN_SERVICE_NAME }}'
+       mysql_db:
+         name: '{{ ZUN_SERVICE_NAME }}'
+         state: present
+         login_host: '{{ HOST_NAME}}' #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: CREATE USER '{{ ZUN_SERVICE_NAME }}' WITH PASS 'openstack' AND SET FULL R/W PERMISSIONS
+       mysql_user:
+         name: '{{ ZUN_SERVICE_NAME }}'
+         password: '{{ ZUN_DB_PASS }}' 
+         host: '{{ item }}'
+         priv: '*.*:ALL/{{ ZUN_SERVICE_NAME }}.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: "{{ HOST_NAME }}" #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE '{{ ZUN_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ ZUN_SERVICE_NAME }}'
+         password: '{{ ZUN_USER_PASS }}'
+         domain: default
+     - name: ADD USER '{{ ZUN_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: '{{ ZUN_SERVICE_NAME }}'
+         role: admin
+         project: service
+     - name: CREATE A '{{ ZUN_SERVICE_NAME }}' SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ ZUN_SERVICE_NAME }}'
+         service_type: container
+         description: Container Service
+     - name: CREATE A PUBLIC SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: public
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE A INTERNAL SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: internal
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE A ADMIN SERVICE FOR '{{ ZUN_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: '{{ ZUN_SERVICE_NAME }}'
+         endpoint_interface: admin
+         url: http://{{ HOST_NAME }}:9517/v1
+         region: RegionOne
+         state: present
+     - name: CREATE ZUN GROUP
+       group:
+         name: zun
+         state: present
+     - name: ADD ZUN USER
+       user:
+         name: zun
+         create_home: yes
+         home: /var/lib/zun
+         group: zun
+         system: yes
+         shell: /bin/false
+     - name: RECURSIVELY CHANGE OWNER OF ZUN FOLDER
+       file:
+         path: /etc/zun
+         state: directory
+         owner: zun
+         group: zun
+     - name: INSTALL ZUN COMPONENTS
+       yum:
+         name: python3-pip, git, python3-devel, libffi-devel, gcc, openssl-devel
+         state: present
+     - name: CLONE ZUN REPO
+       git:
+         repo: https://opendev.org/openstack/zun.git
+         dest: /var/lib/zun/zun
+         version: stable/ussuri
+     - name: RECURSIVELY CHANGE OWNER OF ZUN FOLDER
+       file:
+         path:  /var/lib/zun/zun
+         state: directory
+         owner: zun
+         group: zun
+         recurse: yes
+     - name: UPGRADE PIP MODULE
+       pip:
+         name:  pip
+         extra_args: --upgrade
+         executable: pip-3
+     - name: UPGRADE SETUPTOOLS WITH PIP2
+       pip:
+         name:  setuptools
+         extra_args: --upgrade
+         executable: pip
+     - name: MODIFY ZUN-API.SERVICE UPSTART CFG
+       lineinfile:
+         path: /var/lib/zun/zun/requirements.txt
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'enmerkar>=0.7.1'
+         - 'pyScss>=1.3.7'
+         - 'Django<3.0,>=2.2'
+     - name: INSTALL REQUIREMENTS FOR ZUN
+       pip:
+         requirements:  /var/lib/zun/zun/requirements.txt
+         executable: pip-3
+     - name: RECURSIVELY CHANGE OWNER OF ZUN FOLDER
+       file:
+         path:  /var/lib/zun/zun
+         state: directory
+         owner: zun
+         group: zun
+         recurse: yes

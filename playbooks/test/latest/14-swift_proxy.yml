@@ -1,0 +1,45 @@
+---
+- hosts: storage #Change server
+  vars:
+    - HOST_NAME: controller
+    - SWIFT_SERVICE_NAME: swift
+    - SWIFT_DBPASS: openstack
+    - SWIFT_SERVICE_PORT: 8080
+    - SWIFT_PROXY_CONF_FILE: /etc/swift/proxy-server.conf
+    - SWIFT_CONF_FILE: /etc/swift/proxy-server.conf
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: install '{{ SWIFT_SERVICE_NAME }}'
+       dnf:
+         name: openstack-swift-proxy, python3-swiftclient, python3-keystoneclient, python3-keystonemiddleware 
+         state: present
+     - name: Download swift-proxy conf file
+       get_url:
+         url: https://opendev.org/openstack/swift/raw/branch/master/etc/proxy-server.conf-sample
+         dest: /etc/swift/proxy-server.conf
+     - name: MODIFY SWIFT_PROXY_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} DEFAULT bind_port 8080'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} DEFAULT user swift'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} DEFAULT swift_dir /etc/swift'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} pipeline:main pipeline catch_errors gatekeeper healthcheck proxy-logging cache container_sync bulk ratelimit authtoken keystoneauth container-quotas account-quotas slo dlo versioned_writes proxy-logging proxy-server'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} app:proxy-server use egg:swift#proxy'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} app:proxy-server account_autocreate True'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:keystoneauth use egg:swift#keystoneauth'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:keystoneauth operator_roles admin,user'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken paste.filter_factory keystonemiddleware.auth_token:filter_factory'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken memcached_servers {{ HOST_NAME }}:11211'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken auth_type password'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken project_domain_id default'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken user_domain_id default'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken project_name service'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken username {{ SWIFT_SERVICE_NAME }}'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken password openstack'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:authtoken delay_auth_decision True'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:cache use egg:swift#memcache'
+         - 'crudini --set {{ SWIFT_PROXY_CONF_FILE }} filter:cache memcache_servers controller:11211'

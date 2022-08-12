@@ -1,0 +1,164 @@
+---
+- hosts: controller #Change server
+  vars:
+    - CINDER_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - KURYR_SERVICE_NAME: kuryr
+    - SERVICE_PORT: 8776
+    - KURYR_CONF_FILE: /etc/heat/heat.conf
+    - RABBIT_PASS: openstack
+    - OVERLAY_INTERFACE_IP_ADDRESS: 10.0.0.181
+    - PLACEMENT_PASS: openstack
+    - PROVIDER_INTERFACE_NAME: ens160
+    - HOST_NAME: controller
+# KURYR
+    - KURYR_SERVICE_NAME: kuryr
+    - KURYR_DB_PASS: openstack
+    - KURYR_USER_PASS: openstack
+    - KURYR_CONF_FILE: /etc/kuryr/kuryr.conf
+    - KURYR_UPSTART_CONF_FILE: /etc/systemd/system/kuryr-libnetwork.service
+    
+  no_log: False
+  tasks:
+#########################################################################
+####          KURYR ON CONTROLLER
+     - name: CREATE '{{ KURYR_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ KURYR_SERVICE_NAME }}'
+         password: '{{ KURYR_USER_PASS }}'
+         domain: default
+     - name: ADD USER '{{ KURYR_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: '{{ KURYR_SERVICE_NAME }}'
+         role: admin
+         project: service
+###    KURYR ON COMPUTE         
+     - name: CREATE KURYR GROUP
+       group:
+         name: kuryr
+         state: present
+     - name: ADD KURYR USER
+       user:
+         name: kuryr
+         create_home: yes
+         home: /var/lib/kuryr
+         group: kuryr
+         system: yes
+         shell: /bin/false
+     - name: CREATE KURYR FOLDER AND CHANGE PERMISSIONS
+       file:
+         path: /etc/kuryr
+         state: directory
+         owner: kuryr
+         group: kuryr
+     - name: INSTALL KURYR COMPONENTS
+       yum:
+         name: python3-pip, git
+         state: present
+     - name: CLONE KURYR REPO
+       git:
+         repo: https://opendev.org/openstack/kuryr-libnetwork.git
+         dest: /var/lib/kuryr/kuryr-libnetwork
+         version: stable/ussuri
+     - name: RECURSIVELY CHANGE OWNER OF kuryr-libnetwork DIRECTORY
+       file:
+         path: /var/lib/kuryr/kuryr-libnetwork
+         state: directory
+         owner: '{{ KURYR_SERVICE_NAME }}'
+         group: '{{ KURYR_SERVICE_NAME }}'
+         recurse: yes
+     - name: CHECK AND INSTALL REQUIREMENTS FOR KURYR
+       pip:
+         requirements: /var/lib/kuryr/kuryr-libnetwork/requirements.txt
+         executable: pip-3
+     - name: SCRIPT FOR INSTALL KURYR
+       file:
+        path:  /var/lib/kuryr/kuryr-libnetwork/kuryr.sh
+        state: touch
+     - name: MODIFY SCRIPT
+       lineinfile:
+         path:  /var/lib/kuryr/kuryr-libnetwork/kuryr.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'python3 setup.py install'
+         - 'echo "LISTO"'
+     - name: CHMOD +X KURYR.SH
+       shell: chmod +x kuryr.sh
+       args:
+        chdir:  /var/lib/kuryr/kuryr-libnetwork/
+     - name: RUN INSTALLER KURYR SCRIPT
+       shell: ./kuryr.sh >> kuryr_debug.txt
+       args:
+        chdir:  /var/lib/kuryr/kuryr-libnetwork/
+     - name: RECURSIVELY CHANGE OWNER OF kuryr-libnetwork DIRECTORY
+       file:
+         path: /var/lib/kuryr/kuryr-libnetwork
+         state: directory
+         owner: kuryr
+         group: kuryr
+         recurse: yes
+     - name: GENERATE SAMPLE CONFIG FILE
+       shell: 'su -s /bin/sh -c "./tools/generate_config_file_samples.sh" kuryr'
+       args:
+         executable: /bin/sh
+         chdir:  /var/lib/kuryr/kuryr-libnetwork/
+     - name: COPY SAMPLE CONFIG FILE
+       shell: 'su -s /bin/sh -c "cp etc/kuryr.conf.sample /etc/kuryr/kuryr.conf" kuryr'
+       args:
+         executable: /bin/sh
+         chdir:  /var/lib/kuryr/kuryr-libnetwork/
+     - name: MODIFY GLANCE-API CONF
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ KURYR_CONF_FILE }} DEFAULT bindir /usr/local/libexec/kuryr'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron www_authenticate_uri http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron auth_url http://{{ HOST_NAME }}:5000'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron username {{ KURYR_SERVICE_NAME }}'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron user_domain_name default'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron password {{ KURYR_USER_PASS }}'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron project_name service'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron project_domain_name default'
+         - 'crudini --set {{ KURYR_CONF_FILE }} neutron auth_type password'
+     - name: CREATE ZUN-API.SERVICE FILE
+       file:
+         path: "/etc/systemd/system/kuryr-libnetwork.service"
+         state: touch
+     - name: MODIFY ZUN-API.SERVICE UPSTART CFG
+       lineinfile:
+         path: /etc/systemd/system/kuryr-libnetwork.service
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - '[Unit]'
+         - 'Description = Kuryr-libnetwork - Docker network plugin for Neutron'
+         - ''
+         - '[Service]'
+         - 'ExecStart = /usr/local/bin/kuryr-server --config-file /etc/kuryr/kuryr.conf'
+         - 'CapabilityBoundingSet = CAP_NET_ADMIN'
+         - 'AmbientCapabilities = CAP_NET_ADMIN'
+         - ''
+         - '[Install]'
+         - 'WantedBy = multi-user.target'
+     - name: RESTART NEUTRON SERVICES
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'kuryr-libnetwork'
+         - 'docker'

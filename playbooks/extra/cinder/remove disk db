@@ -1,0 +1,18 @@
+https://www.codetd.com/en/article/13087314
+
+
+set update volumes attach_status="detached" where id="<02b10612-5902-41db-a371-96432b05c7c4>";
+update volumes setattach_status="detached" where id="<239af173-1fb1-4f61-88ed-6933c7c59d7d>";
+
+
+
+update volumes set attach_status='detached' where id='239af173-1fb1-4f61-88ed-6933c7c59d7d';
+
+
+
+
+https://nontster.medium.com/openstack-volumes-stuck-in-deleting-state-8cf67039f85e
+update volumes set deleted=1,status='deleted',deleted_at=now(),updated_at=now() where deleted=0 and id='68f8908a-2191-4988-a3d0-a25633a6aeda';
+update volumes set deleted=1,status='deleted',deleted_at=now(),updated_at=now() where deleted=0 and id='cd1bd564-9e4e-4e28-ad2d-b22fd51e5c31';
+update volumes set deleted=1,status='deleted',deleted_at=now(),updated_at=now() where deleted=0 and id='bc177bed-cf34-4762-b28a-e2220e4c6440';
+update volumes set deleted=1,status='deleted',deleted_at=now(),updated_at=now() where deleted=0 and id='cfd0f94a-0021-4a50-a921-887fb42d4dbd';

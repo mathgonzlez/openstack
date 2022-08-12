@@ -1,0 +1,108 @@
+---
+- hosts: controller #Change server
+  vars:
+    - SWIFT_HOST_NAME: storage
+    - SWIFT_SERVICE_NAME: swift
+    - SWIFT_USER_PASS: openstack
+    - SWIFT_SERVICE_PORT: 8080
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: CREATE '{{ SWIFT_SERVICE_NAME }}' USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: '{{ SWIFT_SERVICE_NAME }}'
+         password: '{{ SWIFT_USER_PASS }}'
+         domain: default
+     - name: ADD USER '{{ SWIFT_SERVICE_NAME }}' TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ SWIFT_SERVICE_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE '{{ SWIFT_SERVICE_NAME }}' SERVICE FOR STORAGE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: swift
+         service_type: object-store
+         description: OpenStack Object Storage
+#Create Keystone doman, project, user and roles.
+     - name: Create file
+       file:
+        path: /home/run-swift.sh
+        state: touch
+     - name: Add to file
+       lineinfile:
+         path: /home/run-swift.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'source /home/admin-openrc.sh'
+         - 'openstack endpoint create --region RegionOne object-store public http://{{ SWIFT_HOST_NAME }}:{{ SWIFT_SERVICE_PORT }}/v1/AUTH_%\(project_id\)s'
+         - 'openstack endpoint create --region RegionOne object-store internal http://{{ SWIFT_HOST_NAME }}:{{ SWIFT_SERVICE_PORT }}/v1/AUTH_%\(project_id\)s'
+     - name: Chmod
+       shell: chmod +x run-swift.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./run-swift.sh
+       args:
+        chdir: /home/
+     - name: CREATE A ADMIN SERVICE FOR '{{ SWIFT_SERVICE_NAME }}'
+       os_keystone_endpoint:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         service: swift
+         endpoint_interface: admin
+         url: http://{{ SWIFT_HOST_NAME }}:{{ SWIFT_SERVICE_PORT }}/v1
+         region: RegionOne
+         state: present
+#DAN ERROR DE IP LA CREACION DE PUBLIC E INTERNAL
+    #  - name: CREATE A PUBLIC SERVICE FOR '{{ SWIFT_SERVICE_NAME }}'
+    #    os_keystone_endpoint:
+    #      auth:
+    #        auth_url: http://controller:5000
+    #        username: admin
+    #        password: openstack
+    #        project_name: admin
+    #        domain_name: Default
+    #      service: swift
+    #      endpoint_interface: public
+    #      url: http://{{ HOST_NAME }}:{{ SWIFT_SERVICE_PORT }}/v1/AUTH_%\(tenant_id\)s
+    #      region: RegionOne
+    #      state: present
+    #  - name: CREATE A INTERNAL SERVICE FOR '{{ SWIFT_SERVICE_NAME }}'
+    #    os_keystone_endpoint:
+    #      auth:
+    #        auth_url: http://controller:5000
+    #        username: admin
+    #        password: openstack
+    #        project_name: admin
+    #        domain_name: Default
+    #      service: swift
+    #      endpoint_interface: internal
+    #      url: http://{{ HOST_NAME }}:{{ SWIFT_SERVICE_PORT }}/v1/AUTH_%\(tenant_id\)s
+    #      region: RegionOne
+    #      state: present
+

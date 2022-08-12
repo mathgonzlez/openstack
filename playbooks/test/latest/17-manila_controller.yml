@@ -1,0 +1,167 @@
+---
+- hosts: controller #Change server
+  vars:
+    - KEYSTONE_DBPASS: openstack
+    - ADMIN_PASS: openstack
+    - HOST_NAME: controller
+    - MANILA_SERVICE_NAME: manila
+    - MANILA_SERVICE_NAMEv2: manilav2
+    - MANILA_CONF_FILE: /etc/manila/manila.conf
+    - MANILA_USER_NAME: manila
+    - MANILA_DBPASS: openstack
+    - MANILA_USER_PASS: openstack
+    - MANILA_SERVICE_PORT: xxxx
+  no_log: False
+  tasks:
+#-------------------------------------------------------------------------------
+     - name: Create {{ MANILA_SERVICE_NAME }} db
+       mysql_db:
+         name: "{{ MANILA_SERVICE_NAME }}" 
+         state: present
+         login_host: "{{ HOST_NAME }}" #SIN ESTO SIEMPRE ESTA EN LOCALHOST
+         login_unix_socket: /var/lib/mysql/mysql.sock
+     - name: Create database user with name 'keystone' and password '{{ KEYSTONE_DBPASS }}' with all database privileges
+       mysql_user:
+         name: "{{ MANILA_SERVICE_NAME }}" 
+         password: "{{ MANILA_DBPASS }}"
+         host: '{{ item }}'
+         priv: '*.*:ALL/keystone.*:ALL'  #FORMATO TABLA.*:PERMISO.. la '/' separa para varios permisos
+         state: present
+         login_host: controller #SRV DONDE ESTA LA DB
+         update_password: on_create
+         login_unix_socket: /var/lib/mysql/mysql.sock
+       with_items:
+         - 'localhost'
+         - '%'
+     - name: CREATE {{ MANILA_SERVICE_NAME }} USER
+       os_user:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ MANILA_SERVICE_NAME }}"
+         password: openstack
+         domain: default
+     - name: ADD {{ MANILA_SERVICE_NAME }} USER TO ADMIN ROLE
+       os_user_role:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         user: "{{ MANILA_SERVICE_NAME }}"
+         role: admin
+         project: service
+     - name: CREATE A {{ MANILA_SERVICE_NAME }} SERVICE
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ MANILA_SERVICE_NAME }}"
+         service_type: share
+         description: OpenStack Shared File Systems
+     - name: CREATE A {{ MANILA_SERVICE_NAME }} SERVICEv2
+       os_keystone_service:
+         auth:
+           auth_url: http://controller:5000
+           username: admin
+           password: openstack
+           project_name: admin
+           domain_name: Default
+         state: present
+         name: "{{ MANILA_SERVICE_NAMEv2 }}"
+         service_type: sharev2
+         description: OpenStack Shared File Systems
+#Create Keystone doman, project, user and roles.
+     - name: Create file
+       file:
+        path: /home/run-manila.sh
+        state: touch
+     - name: Add to file
+       lineinfile:
+         path: /home/run-manila.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'source /home/admin-openrc.sh'
+         - 'openstack endpoint create --region RegionOne share public http://{{ HOST_NAME }}:8786/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne sharev2 public http://{{ HOST_NAME }}:8786/v2/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne share internal http://{{ HOST_NAME }}:8786/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne sharev2 internal http://{{ HOST_NAME }}:8786/v2/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne share admin http://{{ HOST_NAME }}:8786/v1/%\(tenant_id\)s'
+         - 'openstack endpoint create --region RegionOne sharev2 admin http://{{ HOST_NAME }}:8786/v2/%\(tenant_id\)s'
+     - name: Chmod
+       shell: chmod +x run-manila.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./run-manila.sh
+       args:
+        chdir: /home/
+#-------------------------------------------------------------------------------
+     - name: install {{ MANILA_SERVICE_NAME }} components
+       dnf:
+         name: openstack-manila, python3-manilaclient
+         state: present
+#-------------------------------------------------------------------------------
+     - name: MODIFY MANILA_CONF_FILE
+       shell:
+         cmd: "{{ item }}"
+       with_items:
+         - 'crudini --set {{ MANILA_CONF_FILE }} database connection mysql+pymysql://manila:{{ MANILA_DBPASS }}@controller/manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT transport_url rabbit://openstack:openstack@controller'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT default_share_type default_share_type'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT share_name_template share-%s'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT rootwrap_config /etc/manila/rootwrap.conf'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT api_paste_config /etc/manila/api-paste.ini'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT auth_strategy keystone'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken memcached_servers controller:11211'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_uri http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_url http://controller:5000'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken auth_type password'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken project_domain_name  default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken user_domain_name default'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken project_name service'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken username manila'
+         - 'crudini --set {{ MANILA_CONF_FILE }} keystone_authtoken password {{ MANILA_USER_PASS }}'
+         - 'crudini --set {{ MANILA_CONF_FILE }} DEFAULT my_ip 192.168.50.60'
+         - 'crudini --set {{ MANILA_CONF_FILE }} oslo_concurrency lock_path /var/lock/manila'
+#-------------------------------------------------------------------------------
+#POPULATE DB WITH SCRIPT
+     - name: Create file for populate manila db
+       file:
+        path: /home/populateMANILA.sh
+        state: touch
+     - name: add commands
+       lineinfile:
+         path: /home/populateMANILA.sh
+         line: "{{ item }}"
+         state: present
+       with_items:
+         - 'su -s /bin/sh -c "manila-manage db sync" manila'
+         - 'echo "LISTO"'
+     - name: chmod the file
+       shell: chmod +x populateMANILA.sh
+       args:
+        chdir: /home/
+     - name: run
+       shell: ./populateMANILA.sh
+       args:
+        chdir: /home/
+#-------------------------------------------------------------------------------
+     - name: RESTART NEUTRON SERVICES
+       systemd:
+         name: "{{ item }}"
+         state: restarted
+         enabled: yes
+       with_items:
+         - 'openstack-manila-api.service'
+         - 'openstack-manila-scheduler.service'

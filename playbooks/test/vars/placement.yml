@@ -1,0 +1,2 @@
+    - PLACEMENT_CONFIG_FILE: /etc/placement/placement.conf
+    - PLACEMENT_PASS: openstack

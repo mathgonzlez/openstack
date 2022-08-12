@@ -1,0 +1,50 @@
+https://bobcares.com/blog/removal-of-mdadm-raid-devices/
+https://www.jeffgeerling.com/blog/2021/htgwa-create-raid-array-linux-mdadm
+
+
+umount /dev/md1
+mdadm --stop /dev/md1
+mdadm --remove /dev/md1
+mdadm --zero-superblock /dev/sdb1 /dev/sdc1
+
+
+
+
+umount /dev/md*
+mdadm --stop /dev/md*
+mdadm --remove /dev/md*
+mdadm --zero-superblock /dev/sda /dev/sdb /dev/sdc /dev/sdd
+
+
+#raid0
+sudo sgdisk -n 1:0:0 /dev/sdc
+sudo sgdisk -n 1:0:0 /dev/sdb
+mdadm -v --create /dev/md0 --name=0 --level=raid0 --raid-devices=2 /dev/sdc1 /dev/sdb1
+sudo mdadm --detail --scan --verbose | sudo tee -a /etc/mdadm/mdadm.conf
+sudo mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0 /dev/md0
+
+
+#raid1
+sudo sgdisk -n 1:0:0 /dev/sdb
+sudo sgdisk -n 1:0:0 /dev/sdc
+mdadm -v --create /dev/md1 --name=1 --level=raid1 --raid-devices=2 /dev/sdb1 /dev/sdc1
+sudo mdadm --detail --scan --verbose | sudo tee -a /etc/mdadm/mdadm.conf
+sudo mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0 /dev/md1
+
+
+
+
+
+
+filter = [ "a/sda/", "a/sdb/", "a/sdc/", "a/sdd/","r/.*/"]
+
+wipefs -a /dev/md0
+wipefs -a /dev/md1
+pvcreate /dev/md0
+pvcreate /dev/md1
+vgcreate "cinder-hdd-r0" /dev/md0
+vgcreate "cinder-hdd-r1" /dev/md1
+
+
+openstack volume type create hddr1
+openstack volume type set hddr1 --property volume_backend_name=hddr1
